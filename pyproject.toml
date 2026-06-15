@@ -1,0 +1,44 @@
+[project]
+name = "hmr"
+version = "1.5.0"
+description = "Hestia Memory Runtime - Persistent Cognitive Runtime for Long-Running AI Systems"
+authors = [{name = "Hestia OS Team"}]
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+
+dependencies = [
+    "pydantic>=2.0.0",
+    "numpy>=1.24.0",
+]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0.0"]
+local = ["sentence-transformers>=2.0.0"]
+vectordb = ["chromadb>=0.4.0"]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+    "hmr",
+    "hmr.core",
+    "hmr.engines",
+    "hmr.storage",
+    "hmr.graph",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
