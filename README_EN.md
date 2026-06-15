@@ -63,6 +63,39 @@ See the `docs/` directory:
 - `BUGFIX_CN.md`            — v1.1 fix notes
 - `HESTIA_INTEGRATION_EN.md`— Hestia OS integration guide
 
+## OpenClaw Integration
+
+HMR can serve as a persistent memory backend for [OpenClaw](https://openclaw.ai) agents, giving them cross-session memory.
+
+```
+OpenClaw agent  ──HTTP──▶  HMR service (service/server.py)  ──▶  HMR
+   hmr-memory skill            127.0.0.1:8077
+```
+
+Three steps:
+
+1. Start the HMR memory service:
+   ```bash
+   pip install fastapi uvicorn
+   cd service
+   python server.py
+   ```
+   See [service/README.md](service/README.md).
+
+2. Install the OpenClaw skill (published on ClawHub):
+   ```bash
+   openclaw skills install hmr-memory
+   ```
+
+3. Test:
+   ```bash
+   openclaw agent --message "Remember I prefer Python"
+   openclaw agent --message "What languages do I like?"
+   ```
+   If it answers Python, the integration works.
+
+Skill source: [hmr-memory-skill](https://github.com/snowfoxHQ/hmr-memory-skill)
+
 ## License
 
 MIT License

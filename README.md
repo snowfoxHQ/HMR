@@ -62,6 +62,39 @@ hmr/
 - `ARCHITECTURE_CN.md`— 系统架构
 - `API_CN.md`         — API 参考
 
+## OpenClaw 集成
+
+HMR 可作为 [OpenClaw](https://openclaw.ai) agent 的持久记忆后端，给 agent 加上跨会话记忆。
+
+```
+OpenClaw agent  ──HTTP──▶  HMR 服务 (service/server.py)  ──▶  HMR
+   hmr-memory skill            127.0.0.1:8077
+```
+
+三步接入：
+
+1. 启动 HMR 记忆服务：
+   ```bash
+   pip install fastapi uvicorn
+   cd service
+   python server.py
+   ```
+   详见 [service/README.md](service/README.md)。
+
+2. 安装 OpenClaw skill（已发布在 ClawHub）：
+   ```bash
+   openclaw skills install hmr-memory
+   ```
+
+3. 测试：
+   ```bash
+   openclaw agent --message "记住我喜欢用 Python"
+   openclaw agent --message "我喜欢什么编程语言？"
+   ```
+   第二句能答出 Python 即接入成功。
+
+skill 源码：[hmr-memory-skill](https://github.com/snowfoxHQ/hmr-memory-skill)
+
 ## 许可证
 
 MIT License
