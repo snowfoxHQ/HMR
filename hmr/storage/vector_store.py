@@ -52,13 +52,39 @@ class EmbeddingProvider:
         except ImportError:
             pass
 
+        # 尝试 Ollama（本地，仅当设置了 HMR_OLLAMA_MODEL 时启用）
+        ollama_model = os.environ.get("HMR_OLLAMA_MODEL", "")
+        if ollama_model:
+            try:
+                self._ollama_host = os.environ.get(
+                    "HMR_OLLAMA_HOST", "http://localhost:11434"
+                ).rstrip("/")
+                self._ollama_model = ollama_model
+                test_vec = self._embed_ollama("test")
+                if test_vec and len(test_vec) > 0:
+                    self._provider = "ollama"
+                    self._dim = len(test_vec)
+                    print(f"[HMR Embedding] 使用 Ollama ({ollama_model}, dim={self._dim})")
+                    return
+                else:
+                    print("[HMR Embedding] Ollama 返回空向量，尝试下一个方案")
+            except Exception as e:
+                print(f"[HMR Embedding] Ollama 不可用（{e}），尝试下一个方案")
+
         # 尝试 sentence-transformers
         try:
             from sentence_transformers import SentenceTransformer
-            self._st_model = SentenceTransformer("all-MiniLM-L6-v2")
+            # 模型可通过环境变量 HMR_ST_MODEL 配置（默认轻量英文模型）。
+            # 中文 / 中英混排场景推荐 BAAI/bge-m3 或 BAAI/bge-small-zh-v1.5。
+            st_model_name = os.environ.get("HMR_ST_MODEL", "all-MiniLM-L6-v2")
+            self._st_model = SentenceTransformer(st_model_name)
             self._provider = "sentence_transformers"
-            self._dim = 384
-            print("[HMR Embedding] 使用 sentence-transformers (all-MiniLM-L6-v2)")
+            # 维度从模型动态获取，兼容任意模型（all-MiniLM=384、bge-m3=1024 等）
+            try:
+                self._dim = self._st_model.get_sentence_embedding_dimension()
+            except Exception:
+                self._dim = 384
+            print(f"[HMR Embedding] 使用 sentence-transformers ({st_model_name})")
             return
         except ImportError:
             pass
@@ -70,6 +96,8 @@ class EmbeddingProvider:
     def embed(self, text: str) -> List[float]:
         if self._provider == "openai":
             return self._embed_openai(text)
+        elif self._provider == "ollama":
+            return self._embed_ollama(text)
         elif self._provider == "sentence_transformers":
             return self._embed_st(text)
         else:
@@ -78,10 +106,36 @@ class EmbeddingProvider:
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         if self._provider == "openai":
             return self._embed_openai_batch(texts)
+        elif self._provider == "ollama":
+            return [self._embed_ollama(t) for t in texts]
         elif self._provider == "sentence_transformers":
             return self._embed_st_batch(texts)
         else:
             return [self._embed_tfidf(t) for t in texts]
+
+    # --- Ollama（本地，通过 HTTP API，不需额外依赖）---
+
+    def _embed_ollama(self, text: str) -> List[float]:
+        import urllib.request
+        import json as _json
+        url = f"{self._ollama_host}/api/embeddings"
+        payload = _json.dumps({
+            "model": self._ollama_model,
+            "prompt": text[:8000],
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return _json.loads(resp.read()).get("embedding", [])
+        except Exception as e:
+            if getattr(self, "_provider", None) == "ollama":
+                print(f"[HMR Embedding] Ollama 调用失败，降级 TF-IDF: {e}")
+                self._provider = "tfidf"
+            return self._embed_tfidf(text)
 
     # --- OpenAI ---
 

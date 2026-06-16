@@ -110,6 +110,109 @@ pip install sentence-transformers
 pip install openai
 ```
 
+#### 选择本地模型（中文 / 多语言支持）
+
+方案 A 的本地模型默认是 `all-MiniLM-L6-v2`（约 80MB，轻量、英文好，但**中文支持较弱**）。
+你可以通过环境变量 `HMR_ST_MODEL` 换成更适合自己语言的模型，**无需改代码**。
+
+| 模型 | 大小 | 适用场景 |
+|------|------|---------|
+| `all-MiniLM-L6-v2`（默认） | ~80MB | 英文为主，轻量 |
+| `BAAI/bge-small-zh-v1.5` | ~100MB | 中文为主，轻量 |
+| `BAAI/bge-base-zh-v1.5` | ~400MB | 中文，效果更好 |
+| `BAAI/bge-m3` | ~2.2GB | **中英双语都强**，中英混排首选 |
+| `paraphrase-multilingual-MiniLM-L12-v2` | ~120MB | 50+ 语言，轻量多语言 |
+
+设置方法（以 bge-m3 为例）：
+
+```bash
+# Windows (PowerShell) — 临时
+$env:HMR_ST_MODEL="BAAI/bge-m3"
+
+# Windows (PowerShell) — 永久
+[System.Environment]::SetEnvironmentVariable("HMR_ST_MODEL", "BAAI/bge-m3", "User")
+
+# Linux / macOS
+export HMR_ST_MODEL="BAAI/bge-m3"
+```
+
+设置后启动 HMR，日志会显示实际加载的模型：
+`[HMR Embedding] 使用 sentence-transformers (BAAI/bge-m3)`
+
+> **重要**：更换模型后，旧的向量索引与新模型不兼容，必须重建一次索引。
+> 如果用了 HTTP 服务，调用 `POST /reindex` 即可自动重建；
+> 直接用库时，调用 `hmr.vector_store.rebuild_from_memories(hmr.memory_fs.list_memories())`。
+> 不重建会导致语义搜索结果不准。
+
+#### 方案 C：Ollama 本地模型（推荐，尤其适合中文）
+
+如果你已经用 [Ollama](https://ollama.com) 在本地跑模型，HMR 可以直接调用，
+**无需 HMR 自己下载模型**。适合用 Ollama 管理 bge-m3 等中文强模型的场景。
+
+```bash
+# 1. 用 Ollama 拉取模型（一次即可）
+ollama pull bge-m3
+
+# 2. 让 HMR 使用 Ollama（设环境变量）
+# Windows (PowerShell)
+$env:HMR_OLLAMA_MODEL="bge-m3"
+
+# Linux / macOS
+export HMR_OLLAMA_MODEL="bge-m3"
+```
+
+可选：如果 Ollama 不在默认地址，用 `HMR_OLLAMA_HOST` 指定：
+```bash
+$env:HMR_OLLAMA_HOST="http://localhost:11434"   # 默认值，一般不用设
+```
+
+设置后启动 HMR，日志会显示：
+`[HMR Embedding] 使用 Ollama (bge-m3, dim=1024)`
+
+> 同样，切换到 Ollama 后旧索引失效，需调用一次 `POST /reindex` 重建。
+
+---
+
+#### Embedding 方案总览（HMR 按以下优先级自动选择）
+
+| 优先级 | 方案 | 启用条件 | 适合 |
+|--------|------|---------|------|
+| 1 | **OpenAI**（在线） | 设 `OPENAI_API_KEY` | 效果最佳，需联网+API Key |
+| 2 | **Ollama**（本地） | 设 `HMR_OLLAMA_MODEL` | 本地、中文强（bge-m3）、不联网 |
+| 3 | **sentence-transformers**（本地） | 装了该包 | 本地、可配 `HMR_ST_MODEL` |
+| 4 | **TF-IDF**（兜底） | 始终可用 | 无依赖，开发测试用 |
+
+你可以自由组合：想用在线的设 OpenAI；想本地+中文强用 Ollama 的 bge-m3；
+都不设则自动兜底到 TF-IDF。
+
+#### 按语言过滤召回（中英混排场景）
+
+双语模型（如 bge-m3）会把语义相近的中英文内容映射到相近向量，所以搜中文时
+可能混入英文结果。HMR 支持按语言过滤召回，通过环境变量 `HMR_LANG_FILTER` 配置：
+
+| 值 | 行为 | 适合 |
+|----|------|------|
+| `off`（默认） | 不过滤，中英文都返回 | 中英混排，要互相搜到 |
+| `auto` | 自动检测**查询**语言，只返回同语言记忆 | 搜中文只出中文，搜英文只出英文 |
+| `zh` | 强制只返回中文记忆 | 固定中文场景 |
+| `en` | 强制只返回英文记忆 | 固定英文场景 |
+
+```bash
+# 中文为主、不想被英文干扰，用 auto
+# Windows (PowerShell)
+$env:HMR_LANG_FILTER="auto"
+
+# Linux / macOS
+export HMR_LANG_FILTER="auto"
+```
+
+> 默认 `off`，不影响现有行为。语言按内容中文字符占比自动判断，无需手动标注。
+> 过滤后若结果为空，会自动回退到不过滤（避免一条都搜不到）。
+>
+> **使用建议**：Agent 对话场景的记忆天然中英混杂（中文描述 + 英文技术名词/代码），
+> 强行按语言过滤容易误伤，**建议保持默认 `off`**。这个功能更适合**结构化知识库**
+> 等内容语言清晰的场景——届时按需开启 `auto` 或 `zh`/`en` 才能发挥价值。
+
 如果用方案 B，需要设置环境变量 `OPENAI_API_KEY`。
 **下面分平台列出命令，请找到你自己的系统对照使用——不同系统的命令完全不同，用错会报错。**
 

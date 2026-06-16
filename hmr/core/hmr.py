@@ -14,6 +14,7 @@ HMR v1.5 - Hestia Memory Runtime
 """
 
 from typing import List, Dict, Any, Optional
+import os
 from datetime import datetime
 
 from .models import (
@@ -30,6 +31,18 @@ from ..storage.memory_fs      import MemoryFS
 from ..storage.vector_store   import VectorStore
 from ..graph.cwg              import CognitiveWorkspaceGraph
 from ..graph.memory_graph     import MemoryGraph
+
+
+
+def detect_lang(text: str) -> str:
+    """简单语言检测：按中文字符占比判断。>=15% 判 zh，否则 en。无额外依赖。"""
+    if not text:
+        return "en"
+    zh = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+    total = sum(1 for ch in text if ch.strip())
+    if total == 0:
+        return "en"
+    return "zh" if (zh / total) >= 0.15 else "en"
 
 
 class HMR:
@@ -153,6 +166,16 @@ class HMR:
                 if key in metadata:
                     setattr(memory, key, metadata[key])
 
+        # 自动检测并记录语言（用于按语言过滤召回）
+        lang = detect_lang((title or "") + " " + content)
+        self._mem_lang = getattr(self, "_mem_lang", {})
+        self._mem_lang[memory.id] = lang
+        try:
+            if hasattr(memory, "metadata") and isinstance(memory.metadata, dict):
+                memory.metadata["lang"] = lang
+        except Exception:
+            pass
+
         self.semantic_engine.store(memory)
         self.temporal_engine.create_temporal_state(memory)
 
@@ -189,6 +212,7 @@ class HMR:
         cache_key = f"{query}|{context.get('active_goal','')}|{plan.top_k}"
         cached = self.scheduler.get_from_cache(cache_key)
         if cached:
+            cached = self._apply_lang_filter(query, cached)
             return RecallResult(
                 memory_objects=cached,
                 recall_reasoning=f"[Cache] {plan.reasoning}",
@@ -230,12 +254,34 @@ class HMR:
         if plan.cache_result:
             self.scheduler.put_to_cache(cache_key, memories)
 
+        memories = self._apply_lang_filter(query, memories)
+
         return RecallResult(
             memory_objects=memories,
             recall_reasoning=reasoning,
             predicted_need=[query or ""] + list(context.get("focus_areas", [])),
             relevance_scores=scores
         )
+
+    def _apply_lang_filter(self, query, memories):
+        """按 HMR_LANG_FILTER 过滤召回语言。off(默认)=不过滤；auto=按查询语言；zh/en=强制。"""
+        mode = os.environ.get("HMR_LANG_FILTER", "off").lower()
+        if mode == "off" or not memories:
+            return memories
+        if mode == "auto":
+            target = detect_lang(query or "")
+        elif mode in ("zh", "en"):
+            target = mode
+        else:
+            return memories
+
+        def mem_lang(m):
+            # 直接实时检测记忆内容的语言（标题+正文），可靠且不依赖持久化
+            return detect_lang((getattr(m, "title", "") or "") + " " +
+                               (getattr(m, "content", "") or ""))
+
+        filtered = [m for m in memories if mem_lang(m) == target]
+        return filtered if filtered else memories
 
     # =========================================================================
     # Runtime State

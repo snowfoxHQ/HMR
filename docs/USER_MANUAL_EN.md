@@ -117,6 +117,115 @@ pip install sentence-transformers
 pip install openai
 ```
 
+#### Choosing a local model (Chinese / multilingual support)
+
+Option A's local model defaults to `all-MiniLM-L6-v2` (~80MB, lightweight, good
+for English but **weak on Chinese**). You can switch to a model better suited to
+your language via the `HMR_ST_MODEL` environment variable — **no code change needed**.
+
+| Model | Size | Best for |
+|-------|------|----------|
+| `all-MiniLM-L6-v2` (default) | ~80MB | English, lightweight |
+| `BAAI/bge-small-zh-v1.5` | ~100MB | Chinese, lightweight |
+| `BAAI/bge-base-zh-v1.5` | ~400MB | Chinese, higher quality |
+| `BAAI/bge-m3` | ~2.2GB | **Strong in both Chinese & English**, best for mixed text |
+| `paraphrase-multilingual-MiniLM-L12-v2` | ~120MB | 50+ languages, lightweight |
+
+How to set (bge-m3 example):
+
+```bash
+# Windows (PowerShell) — temporary
+$env:HMR_ST_MODEL="BAAI/bge-m3"
+
+# Windows (PowerShell) — persistent
+[System.Environment]::SetEnvironmentVariable("HMR_ST_MODEL", "BAAI/bge-m3", "User")
+
+# Linux / macOS
+export HMR_ST_MODEL="BAAI/bge-m3"
+```
+
+After setting, HMR logs the actual model loaded:
+`[HMR Embedding] 使用 sentence-transformers (BAAI/bge-m3)`
+
+> **Important:** After changing models, the old vector index is incompatible with
+> the new model and must be rebuilt once. If using the HTTP service, call
+> `POST /reindex` to rebuild automatically; if using the library directly, call
+> `hmr.vector_store.rebuild_from_memories(hmr.memory_fs.list_memories())`.
+> Skipping the rebuild will make semantic search inaccurate.
+
+#### Option C: Ollama local models (recommended, great for Chinese)
+
+If you already run models locally via [Ollama](https://ollama.com), HMR can call
+it directly — **no model download by HMR needed**. Ideal for managing strong
+Chinese models like bge-m3 through Ollama.
+
+```bash
+# 1. Pull the model with Ollama (once)
+ollama pull bge-m3
+
+# 2. Tell HMR to use Ollama
+# Windows (PowerShell)
+$env:HMR_OLLAMA_MODEL="bge-m3"
+
+# Linux / macOS
+export HMR_OLLAMA_MODEL="bge-m3"
+```
+
+Optional — if Ollama isn't at the default address, set `HMR_OLLAMA_HOST`:
+```bash
+$env:HMR_OLLAMA_HOST="http://localhost:11434"   # default, usually unnecessary
+```
+
+After setting, HMR logs:
+`[HMR Embedding] 使用 Ollama (bge-m3, dim=1024)`
+
+> Switching to Ollama also invalidates the old index — call `POST /reindex` once.
+
+---
+
+#### Embedding provider overview (HMR auto-selects by priority)
+
+| Priority | Provider | Enabled when | Best for |
+|----------|----------|--------------|----------|
+| 1 | **OpenAI** (online) | `OPENAI_API_KEY` set | Best quality, needs internet + key |
+| 2 | **Ollama** (local) | `HMR_OLLAMA_MODEL` set | Local, strong Chinese (bge-m3), offline |
+| 3 | **sentence-transformers** (local) | package installed | Local, configurable via `HMR_ST_MODEL` |
+| 4 | **TF-IDF** (fallback) | always available | No deps, dev/testing |
+
+Mix freely: set OpenAI for online; use Ollama's bge-m3 for local Chinese;
+set nothing to fall back to TF-IDF.
+
+#### Filter recall by language (mixed-language scenarios)
+
+Bilingual models (like bge-m3) map semantically similar Chinese and English
+content to nearby vectors, so searching in Chinese may surface English results.
+HMR can filter recall by language via the `HMR_LANG_FILTER` environment variable:
+
+| Value | Behavior | Best for |
+|-------|----------|----------|
+| `off` (default) | No filtering, returns both | Mixed text, cross-language search |
+| `auto` | Detects **query** language, returns same-language only | Chinese query → Chinese only |
+| `zh` | Force Chinese results only | Fixed Chinese scenarios |
+| `en` | Force English results only | Fixed English scenarios |
+
+```bash
+# Windows (PowerShell)
+$env:HMR_LANG_FILTER="auto"
+
+# Linux / macOS
+export HMR_LANG_FILTER="auto"
+```
+
+> Default is `off`, preserving existing behavior. Language is auto-detected by
+> Chinese-character ratio — no manual tagging needed. If filtering yields no
+> results, it falls back to unfiltered (so you never get zero hits).
+>
+> **Recommendation:** Agent-conversation memories are naturally mixed-language
+> (Chinese prose + English technical terms/code), where strict language filtering
+> can backfire — **keep the default `off`**. This feature is better suited to
+> **structured knowledge bases** with clear per-item language, where enabling
+> `auto` or `zh`/`en` actually pays off.
+
 If using Option B, set the `OPENAI_API_KEY` environment variable.
 **Commands are listed per platform below — find your own system and use the
 matching command. The commands are completely different across systems; using

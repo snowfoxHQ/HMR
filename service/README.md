@@ -85,3 +85,59 @@ openclaw agent --message "我喜欢什么编程语言？"
 ```bash
 curl -X POST http://127.0.0.1:8077/reindex
 ```
+
+## 配置 Embedding 模型（中文支持）
+
+本地模型默认 `all-MiniLM-L6-v2`（中文较弱）。中文/中英混排场景，
+通过环境变量 `HMR_ST_MODEL` 换模型，无需改代码：
+
+```bash
+# Windows (PowerShell)
+$env:HMR_ST_MODEL="BAAI/bge-m3"
+python server.py
+
+# Linux / macOS
+export HMR_ST_MODEL="BAAI/bge-m3"
+python server.py
+```
+
+推荐模型：
+| 模型 | 大小 | 场景 |
+|------|------|------|
+| `all-MiniLM-L6-v2`（默认） | ~80MB | 英文为主 |
+| `BAAI/bge-small-zh-v1.5` | ~100MB | 中文为主，轻量 |
+| `BAAI/bge-m3` | ~2.2GB | 中英双语都强，混排首选 |
+
+> 换模型后旧索引失效，需调用 `POST /reindex` 重建一次。
+
+### 用 Ollama 本地模型（中文推荐）
+
+如果你用 Ollama 在本地跑了 bge-m3 等模型，让 HMR 服务直接调用：
+
+```bash
+ollama pull bge-m3
+
+# Windows (PowerShell)
+$env:HMR_OLLAMA_MODEL="bge-m3"
+python server.py
+
+# Linux / macOS
+export HMR_OLLAMA_MODEL="bge-m3"
+python server.py
+```
+
+启动日志显示 `使用 Ollama (bge-m3, dim=1024)` 即成功。
+切换后旧索引失效，调用一次 `POST /reindex` 重建。
+
+完整优先级：OpenAI（设 OPENAI_API_KEY）> Ollama（设 HMR_OLLAMA_MODEL）
+> sentence-transformers（设 HMR_ST_MODEL）> TF-IDF（兜底）。
+
+### 按语言过滤召回（可选）
+
+双语模型搜中文时可能混入英文结果。设 `HMR_LANG_FILTER` 控制：
+- `off`（默认）不过滤；`auto` 按查询语言；`zh`/`en` 强制指定。
+
+```bash
+$env:HMR_LANG_FILTER="auto"   # 搜中文只出中文
+python server.py
+```
