@@ -5,33 +5,24 @@ HMR HTTP Service — 把 HMR 包成本地 HTTP 服务，供 OpenClaw 等外部 a
   1. 已安装 HMR：在 HMR 项目目录（含 pyproject.toml）运行过 pip install -e .
   2. 已装服务依赖：pip install fastapi uvicorn
 
-启动：
-    python server.py
-
-默认监听 http://127.0.0.1:8077（只绑本机，不对外网开放）
+启动：python server.py
+默认监听 http://127.0.0.1:8077（只绑本机）
 
 可选环境变量：
-    HMR_STORAGE_PATH   数据存储路径（默认 ./hmr_data）
-    HMR_HOST           监听地址（默认 127.0.0.1）
-    HMR_PORT           端口（默认 8077）
-    HMR_TOKEN          访问令牌（默认空，不校验）
+    HMR_STORAGE_PATH / HMR_HOST / HMR_PORT / HMR_TOKEN
 """
 
 import os
 import sys
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from contextlib import asynccontextmanager
 
-# HMR 通过 pip install -e . 安装后可直接导入，无需任何路径配置
 try:
     from hmr.core.hmr import HMR
 except ImportError:
-    print(
-        "[HMR Service] 错误：找不到 hmr 包。\n"
-        "  请先在 HMR 项目目录（含 pyproject.toml 的那一层）运行：\n"
-        "      pip install -e .\n",
-        file=sys.stderr,
-    )
+    print("[HMR Service] 错误：找不到 hmr 包。请在 HMR 项目目录运行 pip install -e .",
+          file=sys.stderr)
     sys.exit(1)
 
 try:
@@ -39,29 +30,61 @@ try:
     from pydantic import BaseModel
     import uvicorn
 except ImportError:
-    print(
-        "[HMR Service] 错误：缺少服务依赖。\n"
-        "  请运行：pip install fastapi uvicorn\n",
-        file=sys.stderr,
-    )
+    print("[HMR Service] 错误：缺少依赖。请运行 pip install fastapi uvicorn",
+          file=sys.stderr)
     sys.exit(1)
 
 
-# ── 配置（全部可用环境变量覆盖，无硬编码路径）─────────────────────────────
 HMR_STORAGE_PATH = os.environ.get("HMR_STORAGE_PATH", "./hmr_data")
 HMR_HOST = os.environ.get("HMR_HOST", "127.0.0.1")
 HMR_PORT = int(os.environ.get("HMR_PORT", "8077"))
 HMR_TOKEN = os.environ.get("HMR_TOKEN", "")
 
+_PROVIDER_MARKER = Path(HMR_STORAGE_PATH) / ".embedding_provider"
+
 hmr: Optional[HMR] = None
+provider_mismatch: Optional[Dict[str, str]] = None
+
+
+def _read_last_provider() -> Optional[str]:
+    try:
+        if _PROVIDER_MARKER.exists():
+            return _PROVIDER_MARKER.read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+    return None
+
+
+def _write_provider(provider: str):
+    try:
+        _PROVIDER_MARKER.parent.mkdir(parents=True, exist_ok=True)
+        _PROVIDER_MARKER.write_text(provider, encoding="utf-8")
+    except Exception:
+        pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global hmr
+    global hmr, provider_mismatch
     print(f"[HMR Service] 初始化 HMR，存储路径: {HMR_STORAGE_PATH}")
     hmr = HMR(storage_path=HMR_STORAGE_PATH)
-    print(f"[HMR Service] HMR v{hmr.VERSION} 就绪")
+
+    current = hmr.get_system_status().get("embedding_provider", "unknown")
+    last = _read_last_provider()
+
+    if last and last != current:
+        provider_mismatch = {"from": last, "to": current}
+        print("=" * 64, file=sys.stderr)
+        print(f"[HMR Service] ⚠️  检测到 Embedding 提供者切换：{last} → {current}",
+              file=sys.stderr)
+        print("    旧向量索引与当前提供者不匹配，语义搜索可能失效。", file=sys.stderr)
+        print("    修复：curl -X POST http://127.0.0.1:8077/reindex", file=sys.stderr)
+        print("=" * 64, file=sys.stderr)
+    else:
+        provider_mismatch = None
+
+    _write_provider(current)
+    print(f"[HMR Service] HMR v{hmr.VERSION} 就绪（Embedding: {current}）")
     yield
     print("[HMR Service] 关闭")
 
@@ -94,7 +117,40 @@ class SaveStateRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "version": hmr.VERSION if hmr else "not_ready"}
+    if not hmr:
+        return {"status": "starting", "version": "not_ready"}
+    s = hmr.get_system_status()
+    result = {
+        "status": "ok",
+        "version": hmr.VERSION,
+        "embedding_provider": s.get("embedding_provider"),
+        "total_memories": s.get("memory_fs", {}).get("total_memories", 0),
+        "synced": s.get("synced", False),
+    }
+    if provider_mismatch:
+        result["status"] = "degraded"
+        result["warning"] = (
+            f"Embedding 提供者从 {provider_mismatch['from']} 切换为 "
+            f"{provider_mismatch['to']}，向量索引需重建。请 POST /reindex 修复。"
+        )
+    return result
+
+
+@app.post("/reindex")
+def reindex(x_hmr_token: Optional[str] = Header(None)):
+    global provider_mismatch
+    check_token(x_hmr_token)
+    memories = hmr.memory_fs.list_memories()
+    hmr.vector_store.rebuild_from_memories(memories)
+    current = hmr.get_system_status().get("embedding_provider", "unknown")
+    _write_provider(current)
+    provider_mismatch = None
+    return {
+        "reindexed": True,
+        "memory_count": len(memories),
+        "embedding_provider": current,
+        "message": f"已用 {current} 重建 {len(memories)} 条记忆的向量索引",
+    }
 
 
 @app.post("/ingest")
@@ -114,6 +170,13 @@ def ingest(req: IngestRequest, x_hmr_token: Optional[str] = Header(None)):
 @app.post("/recall")
 def recall(req: RecallRequest, x_hmr_token: Optional[str] = Header(None)):
     check_token(x_hmr_token)
+    if provider_mismatch:
+        raise HTTPException(
+            status_code=409,
+            detail=(f"向量索引与当前 Embedding 提供者不匹配"
+                    f"（索引建于 {provider_mismatch['from']}，当前 "
+                    f"{provider_mismatch['to']}）。请先 POST /reindex 重建。"),
+        )
     result = hmr.recall(query=req.query, top_k=req.top_k, strategy=req.strategy)
     return {
         "reasoning": result.recall_reasoning,

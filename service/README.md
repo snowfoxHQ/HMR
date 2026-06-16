@@ -59,3 +59,29 @@ openclaw agent --message "我喜欢什么编程语言？"
 
 - 服务只绑 `127.0.0.1`，不要改成 `0.0.0.0` 对外开放
 - 不要让 agent 把不可信内容（抓取的网页等）存入长期记忆（memory poisoning）
+
+## 接口列表
+
+| 接口 | 方法 | 作用 |
+|------|------|------|
+| `/health` | GET | 健康检查（返回版本、provider、记忆数、同步状态） |
+| `/ingest` | POST | 存入记忆 |
+| `/recall` | POST | 召回记忆 |
+| `/save_state` | POST | 保存认知状态 |
+| `/restore_state` | GET | 恢复认知状态 |
+| `/reindex` | POST | 重建向量索引（embedding 提供者切换后用） |
+| `/status` | GET | 完整系统状态 |
+
+## 故障自愈：embedding 提供者切换
+
+如果你更换了 embedding 提供者（如从 sentence-transformers 换成 ollama），
+旧的向量索引会与新提供者不匹配，导致语义搜索失效。HMR 服务会自动检测：
+
+- 启动时在日志里警告：`⚠️ 检测到 Embedding 提供者切换：X → Y`
+- `/health` 返回 `status: degraded` 并在 `warning` 里说明
+- `/recall` 返回 409 错误，明确告知原因和修复方法
+
+修复只需一个请求（无需停服务、无需手动 --force）：
+```bash
+curl -X POST http://127.0.0.1:8077/reindex
+```
