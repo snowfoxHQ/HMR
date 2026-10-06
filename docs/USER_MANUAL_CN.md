@@ -1,343 +1,191 @@
-# HMR v1.5 用户操作手册
+# HMR v2.0 用户操作手册（中文）
 
-**Hestia Memory Runtime — 面向长期运行 AI 系统的持续认知运行时**
+**Hestia Memory Runtime — 持续认知运行时**
 
-版本：v1.5.0 | 语言：中文
+版本：v2.0.0
 
 ---
 
 ## 目录
 
-1. [快速开始](#快速开始)
-2. [安装](#安装)
-3. [核心概念](#核心概念)
-4. [主要 API](#主要-api)
-   - [初始化](#初始化)
-   - [摄入记忆 ingest](#摄入记忆-ingest)
-   - [召回记忆 recall](#召回记忆-recall)
-   - [运行时状态](#运行时状态)
-   - [代理工作区](#代理工作区)
-   - [记忆压缩](#记忆压缩)
-   - [系统状态](#系统状态)
-5. [高级组件](#高级组件)
-   - [Memory Scheduler 调度器](#memory-scheduler-调度器)
-   - [JIT Memory Compiler 即时编译器](#jit-memory-compiler-即时编译器)
-   - [Memory Lifecycle Engine 生命周期引擎](#memory-lifecycle-engine-生命周期引擎)
-   - [Memory Graph 记忆图层](#memory-graph-记忆图层)
-6. [完整工作流示例](#完整工作流示例)
-7. [配置参考](#配置参考)
-8. [故障排除](#故障排除)
-9. [版本历史](#版本历史)
+1. [快速开始](#1-快速开始)
+2. [安装](#2-安装)
+3. [核心概念](#3-核心概念)
+4. [基础 API](#4-基础-api)
+   - [初始化](#41-初始化)
+   - [摄入记忆 ingest](#42-摄入记忆-ingest)
+   - [召回记忆 recall](#43-召回记忆-recall)
+   - [运行时状态](#44-运行时状态)
+   - [代理工作区](#45-代理工作区)
+   - [记忆压缩](#46-记忆压缩)
+5. [v2.0 新增：ThoughtChain 推理链](#5-v20-新增thoughtchain-推理链)
+6. [v2.0 新增：Memory Policy 策略引擎](#6-v20-新增memory-policy-策略引擎)
+7. [v2.0 新增：Self-Evolution 自我演化](#7-v20-新增self-evolution-自我演化)
+8. [v1.5 高级组件回顾](#8-v15-高级组件回顾)
+9. [完整工作流示例](#9-完整工作流示例)
+10. [配置参考](#10-配置参考)
+11. [系统状态监控](#11-系统状态监控)
+12. [故障排除](#12-故障排除)
 
 ---
 
-## 快速开始
+## 1. 快速开始
 
 ```python
 from hmr.core.hmr import HMR
+from hmr.engines.thought_chain import ThoughtType
 
-# 1. 初始化
+# 初始化
 hmr = HMR(storage_path="./my_project")
 
-# 2. 存入记忆
-hmr.ingest("IPC 应使用异步消息队列，避免阻塞", memory_type="concept", title="IPC 设计原则")
+# ── 存入记忆（Policy 自动判断类型）─────────────────────────
+hmr.ingest("IPC 队列积压导致超时，消费者线程不足", use_policy=True)
+# → 自动分类为 execution，置信度 0.85
 
-# 3. 保存当前工作状态
-hmr.save_runtime_state(
-    goal="设计调度器",
-    plan=["研究 IPC", "设计 API", "实现"]
-)
+# ── 推理链：记录完整思考过程 ─────────────────────────────────
+chain = hmr.start_thinking("排查 IPC 超时根因")
+hmr.think(chain.chain_id, "队列深度持续 > 800",    ThoughtType.OBSERVATION)
+hmr.think(chain.chain_id, "消费者线程可能不足",     ThoughtType.HYPOTHESIS)
+hmr.think(chain.chain_id, "扩容消费者线程 x3",     ThoughtType.DECISION)
+hmr.think(chain.chain_id, "已完成部署",             ThoughtType.ACTION)
 
-# 4. 几天后重启，恢复状态
-state = hmr.restore_runtime_state()
-print(state.active_goal)   # "设计调度器"
+# ── 反思：评估推理质量，洞察自动存入长期记忆 ─────────────────
+ref = hmr.reflect_on(chain.chain_id, "延迟从 800ms 降至 50ms", rating=0.9)
+print(ref.accuracy)    # 0.75
+print(ref.insights)    # ['有效决策路径：...', '目标达成（90%）']
 
-# 5. 智能召回相关记忆
-result = hmr.recall(query="调度器 IPC 设计")
-for mem in result.memory_objects:
-    print(f"[{mem.type}] {mem.title}")
+# ── 下次遇到类似问题，直接查历史最优决策 ─────────────────────
+best = hmr.best_decision_for("IPC 积压")
+# → "[历史参考 准确率=90%] 扩容消费者线程 x3 + 提升优先级"
+
+# ── 召回：智能多策略检索 ─────────────────────────────────────
+result = hmr.recall(query="为什么 IPC 超时", top_k=5)
+print(result.recall_reasoning)   # "[HYBRID] JIT编译 2 步..."
+
+# ── 保存认知状态 ──────────────────────────────────────────────
+hmr.save_runtime_state(goal="优化 IPC 性能", plan=["分析 ✓", "扩容 ✓", "验证"])
+
+# ── 重启后完整恢复 ────────────────────────────────────────────
+hmr2 = HMR(storage_path="./my_project")
+state = hmr2.restore_runtime_state()
+# → goal="优化 IPC 性能"，向量索引、SM-2 状态、Policy 权重全部恢复
+
+# ── 自我演化 ──────────────────────────────────────────────────
+report = hmr.evolve()
+print(report["summary"])   # "演化完成：抽象 1 个簇，解决 0 对矛盾"
 ```
 
 ---
 
-## 安装
+## 2. 安装
 
-> **重要提示（Windows 用户）**
-> 不要把项目放在 `Documents`、`桌面`、`图片` 等被 OneDrive 同步的目录下，
-> 否则 `pip install -e .` 会因 OneDrive 锁定文件而报错
-> （`could not create 'hmr.egg-info': 系统找不到指定的文件`）。
-> 请放到不被同步的路径，例如 `C:\hmr` 或 `C:\projects\hmr`。
-
-### 第 1 步：安装依赖（始终可用）
+### 基础安装（内置 TF-IDF，始终可用）
 
 ```bash
 pip install pydantic numpy
 ```
 
-> 仅需这两个包，HMR 即可完整运行（内置 TF-IDF Embedding）。
-
-### 第 2 步：安装 HMR
-
-进入解压后、包含 `pyproject.toml` 的目录：
+### 推荐安装（更好的语义理解）
 
 ```bash
-# Windows (PowerShell)
-cd C:\hmr
-pip install -e .
-
-# Linux / macOS
-cd /path/to/hmr
-pip install -e .
-```
-
-或者**免安装**直接用：在你的 Python 脚本开头加两行指向项目目录：
-
-```python
-import sys
-sys.path.insert(0, r"C:\hmr")   # 改成你的实际路径
-from hmr.core.hmr import HMR
-```
-
-### （可选）更好的语义搜索
-
-不装下面任何一个，HMR 也能用（自动回退到内置 TF-IDF）。装了效果更好：
-
-```bash
-# 方案 A：本地模型（推荐，免费、无需 API Key、不联网）
-pip install sentence-transformers
-
-# 方案 B：OpenAI Embedding（效果最佳，需要 API Key）
+# 方案 A：OpenAI Embedding（效果最好）
 pip install openai
-```
-
-#### 选择本地模型（中文 / 多语言支持）
-
-方案 A 的本地模型默认是 `all-MiniLM-L6-v2`（约 80MB，轻量、英文好，但**中文支持较弱**）。
-你可以通过环境变量 `HMR_ST_MODEL` 换成更适合自己语言的模型，**无需改代码**。
-
-| 模型 | 大小 | 适用场景 |
-|------|------|---------|
-| `all-MiniLM-L6-v2`（默认） | ~80MB | 英文为主，轻量 |
-| `BAAI/bge-small-zh-v1.5` | ~100MB | 中文为主，轻量 |
-| `BAAI/bge-base-zh-v1.5` | ~400MB | 中文，效果更好 |
-| `BAAI/bge-m3` | ~2.2GB | **中英双语都强**，中英混排首选 |
-| `paraphrase-multilingual-MiniLM-L12-v2` | ~120MB | 50+ 语言，轻量多语言 |
-
-设置方法（以 bge-m3 为例）：
-
-```bash
-# Windows (PowerShell) — 临时
-$env:HMR_ST_MODEL="BAAI/bge-m3"
-
-# Windows (PowerShell) — 永久
-[System.Environment]::SetEnvironmentVariable("HMR_ST_MODEL", "BAAI/bge-m3", "User")
-
-# Linux / macOS
-export HMR_ST_MODEL="BAAI/bge-m3"
-```
-
-设置后启动 HMR，日志会显示实际加载的模型：
-`[HMR Embedding] 使用 sentence-transformers (BAAI/bge-m3)`
-
-> **重要**：更换模型后，旧的向量索引与新模型不兼容，必须重建一次索引。
-> 如果用了 HTTP 服务，调用 `POST /reindex` 即可自动重建；
-> 直接用库时，调用 `hmr.vector_store.rebuild_from_memories(hmr.memory_fs.list_memories())`。
-> 不重建会导致语义搜索结果不准。
-
-#### 方案 C：Ollama 本地模型（推荐，尤其适合中文）
-
-如果你已经用 [Ollama](https://ollama.com) 在本地跑模型，HMR 可以直接调用，
-**无需 HMR 自己下载模型**。适合用 Ollama 管理 bge-m3 等中文强模型的场景。
-
-```bash
-# 1. 用 Ollama 拉取模型（一次即可）
-ollama pull bge-m3
-
-# 2. 让 HMR 使用 Ollama（设环境变量）
-# Windows (PowerShell)
-$env:HMR_OLLAMA_MODEL="bge-m3"
-
-# Linux / macOS
-export HMR_OLLAMA_MODEL="bge-m3"
-```
-
-可选：如果 Ollama 不在默认地址，用 `HMR_OLLAMA_HOST` 指定：
-```bash
-$env:HMR_OLLAMA_HOST="http://localhost:11434"   # 默认值，一般不用设
-```
-
-设置后启动 HMR，日志会显示：
-`[HMR Embedding] 使用 Ollama (bge-m3, dim=1024)`
-
-> 同样，切换到 Ollama 后旧索引失效，需调用一次 `POST /reindex` 重建。
-
----
-
-#### Embedding 方案总览（HMR 按以下优先级自动选择）
-
-| 优先级 | 方案 | 启用条件 | 适合 |
-|--------|------|---------|------|
-| 1 | **OpenAI**（在线） | 设 `OPENAI_API_KEY` | 效果最佳，需联网+API Key |
-| 2 | **Ollama**（本地） | 设 `HMR_OLLAMA_MODEL` | 本地、中文强（bge-m3）、不联网 |
-| 3 | **sentence-transformers**（本地） | 装了该包 | 本地、可配 `HMR_ST_MODEL` |
-| 4 | **TF-IDF**（兜底） | 始终可用 | 无依赖，开发测试用 |
-
-你可以自由组合：想用在线的设 OpenAI；想本地+中文强用 Ollama 的 bge-m3；
-都不设则自动兜底到 TF-IDF。
-
-#### 按语言过滤召回（中英混排场景）
-
-双语模型（如 bge-m3）会把语义相近的中英文内容映射到相近向量，所以搜中文时
-可能混入英文结果。HMR 支持按语言过滤召回，通过环境变量 `HMR_LANG_FILTER` 配置：
-
-| 值 | 行为 | 适合 |
-|----|------|------|
-| `off`（默认） | 不过滤，中英文都返回 | 中英混排，要互相搜到 |
-| `auto` | 自动检测**查询**语言，只返回同语言记忆 | 搜中文只出中文，搜英文只出英文 |
-| `zh` | 强制只返回中文记忆 | 固定中文场景 |
-| `en` | 强制只返回英文记忆 | 固定英文场景 |
-
-```bash
-# 中文为主、不想被英文干扰，用 auto
-# Windows (PowerShell)
-$env:HMR_LANG_FILTER="auto"
-
-# Linux / macOS
-export HMR_LANG_FILTER="auto"
-```
-
-> 默认 `off`，不影响现有行为。语言按内容中文字符占比自动判断，无需手动标注。
-> 过滤后若结果为空，会自动回退到不过滤（避免一条都搜不到）。
->
-> **使用建议**：Agent 对话场景的记忆天然中英混杂（中文描述 + 英文技术名词/代码），
-> 强行按语言过滤容易误伤，**建议保持默认 `off`**。这个功能更适合**结构化知识库**
-> 等内容语言清晰的场景——届时按需开启 `auto` 或 `zh`/`en` 才能发挥价值。
-
-如果用方案 B，需要设置环境变量 `OPENAI_API_KEY`。
-**下面分平台列出命令，请找到你自己的系统对照使用——不同系统的命令完全不同，用错会报错。**
-
-#### Windows — PowerShell
-
-```powershell
-# 临时（仅当前 PowerShell 窗口有效，关闭即失效）
-$env:OPENAI_API_KEY="sk-..."
-
-# 永久（写入用户环境变量，需关闭并重开 PowerShell 才生效）
-[System.Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "sk-...", "User")
-
-# 验证是否设置成功
-echo $env:OPENAI_API_KEY
-```
-
-#### Windows — CMD（命令提示符）
-
-```cmd
-:: 临时（仅当前 CMD 窗口有效）
-set OPENAI_API_KEY=sk-...
-
-:: 永久（写入用户环境变量，需重开 CMD 才生效）
-setx OPENAI_API_KEY "sk-..."
-
-:: 验证是否设置成功
-echo %OPENAI_API_KEY%
-```
-
-#### Linux / macOS — 终端
-
-```bash
-# 临时（仅当前终端会话有效，关闭即失效）
 export OPENAI_API_KEY="sk-..."
 
-# 永久（写入 shell 配置文件，对所有新终端生效）
-# bash 用户：
-echo 'export OPENAI_API_KEY="sk-..."' >> ~/.bashrc && source ~/.bashrc
-# zsh 用户（macOS 默认）：
-echo 'export OPENAI_API_KEY="sk-..."' >> ~/.zshrc && source ~/.zshrc
-
-# 验证是否设置成功
-echo $OPENAI_API_KEY
+# 方案 B：本地模型（无需 API Key）
+pip install sentence-transformers
 ```
 
-> **说明**：环境变量设置成功后，运行 HMR 时会自动读取，无需在代码里写 Key。
-> HMR 启动时按 OpenAI → sentence-transformers → TF-IDF 顺序自动选择，
-> 装了哪个、设了哪个就自动用哪个。
->
-> 如果不想设环境变量，也可以在代码里直接传：
-> `HMR(storage_path="./data", llm_api_key="sk-...")`
+HMR 启动时自动检测并选择最佳 Embedding 方案：
 
-### 第 3 步：验证安装
+```
+优先级：OpenAI > sentence-transformers > TF-IDF n-gram
+```
 
-把下面代码保存为 `verify.py`（**不要直接粘贴到终端 / PowerShell，那是 Python 代码，必须用 python 运行**）：
+### 验证安装
 
 ```python
 from hmr.core.hmr import HMR
-
-hmr = HMR(storage_path="./test_data")
-print("版本:", hmr.VERSION)   # 应输出 1.5.0
-
-status = hmr.get_system_status()
-print("Embedding 方案:", status["embedding_provider"])  # openai / sentence_transformers / tfidf
-print("数据同步:", status["synced"])                     # True
+hmr = HMR()
+s = hmr.get_system_status()
+print(s["version"])            # 2.0.0
+print(s["embedding_provider"]) # openai / sentence_transformers / tfidf
 ```
-
-然后运行：
-
-```bash
-python verify.py
-```
-
-看到 `版本: 1.5.0` 和 `数据同步: True` 即安装成功。
 
 ---
 
-## 核心概念
+## 3. 核心概念
 
-### 设计理念
+### 设计哲学
 
 ```
-传统 AI 记忆：  记忆 = 存储（你问，我搜）
-HMR：          记忆 = 持续认知运行时（系统预测你需要什么，提前加载）
+传统 AI:  记忆 = 存储
+HMR v2.0: 记忆 = 持续认知运行时
+           ├── 不只存"发生了什么"，还存"为什么这样想"
+           ├── 不只检索，还预测、推理、反思
+           ├── 不只积累，还自我演化、自我优化
+           └── 跨会话完整连续——重启不是遗忘，是暂停
 ```
 
-### 五个关键组件
+### v2.0 三个新概念
 
-| 组件 | 职责 | 类比 |
-|------|------|------|
-| **MemoryObject** | 记忆的基本单元，带类型、摘要、时间权重 | 大脑中的一条记忆 |
-| **RuntimeState** | 当前认知状态：目标、计划、上下文 | 你工作时的"脑中状态" |
-| **Memory Scheduler** | 决定用什么策略召回记忆 | 操作系统的进程调度器 |
-| **JIT Compiler** | 多步推理检索，分析缺口再改写查询 | 编译器的多遍优化 |
-| **Memory Graph** | 实体/因果/时序结构化网络 | 知识图谱 |
+**ThoughtChain（思维链）**
+- 推理过程的显式记录：观察 → 假设 → 决策 → 行动 → 反思
+- 每次执行完毕后触发反思，标记哪些判断有误
+- 洞察自动存入长期记忆，历史成功链可供后续参考
+
+**Memory Policy（记忆策略）**
+- 三个子策略：IngestPolicy（存什么）/ RecallPolicy（怎么取）/ ForgetPolicy（怎么忘）
+- 每次 `feedback()` 调用都用 SGD 微调策略权重
+- 中英文均支持，基于字符级匹配，无需分词库
+
+**Self-Evolution（自我演化）**
+- PatternDetector：发现相似度 > 75% 的记忆簇
+- KnowledgeAbstractor：把记忆簇提炼为更高阶的 concept
+- ContradictionResolver：找到语义相反的记忆对，保留置信度高的
+- StrategyOptimizer：分析使用模式，推荐最优配置参数
 
 ### 记忆类型
 
 | 类型 | 用途 | 示例 |
 |------|------|------|
-| `concept` | 抽象知识、设计原则 | "异步优于同步" |
+| `concept` | 抽象知识、设计原则、建议 | "建议使用异步消息队列" |
+| `decision` | 已做出的决策 + 理由 | "决定采用 asyncio 方案" |
+| `execution` | 执行轨迹、故障记录 | "IPC 积压导致超时" |
+| `reflection` | 复盘分析、根因总结 | "因为死锁导致任务阻塞" |
 | `project` | 项目上下文 | "HMR v2 项目目标" |
-| `decision` | 决策 + 理由 | "选择 Chroma 而非 Pinecone" |
-| `execution` | 执行轨迹、失败记录 | "压测中发生死锁" |
 | `task` | 任务定义 | "实现优先级队列" |
-| `reflection` | 复盘和学习 | "死锁原因分析" |
-| `agent_memory` | 代理私有记忆 | "agent_frontend 的 UI 决策" |
+| `agent_memory` | 代理私有记忆 | "agent_frontend UI 决策" |
 | `workflow` | 流程定义 | "发布流程 SOP" |
+
+### ThoughtType 思维类型
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| `OBSERVATION` | 观察到的事实 | "队列深度持续 > 800" |
+| `HYPOTHESIS` | 提出的假设 | "可能是消费者线程不足" |
+| `DECISION` | 做出的决策 | "扩容消费者线程 x3" |
+| `ACTION` | 执行的行动 | "已完成部署" |
+| `OUTCOME` | 行动的结果 | "延迟降至 50ms" |
+| `REFLECTION` | 事后反思 | "扩容策略有效，应作为首选" |
+| `INSIGHT` | 提炼的洞察 | "消费者数量应随并发线性扩展" |
 
 ---
 
-## 主要 API
+## 4. 基础 API
 
-### 初始化
+### 4.1 初始化
 
 ```python
 from hmr.core.hmr import HMR
 from hmr.engines.lifecycle import LifecycleConfig
 
 hmr = HMR(
-    storage_path="./hmr_data",          # 数据存储路径（默认 ./hmr_data）
-    embedding_model="text-embedding-3-small",  # OpenAI Embedding 模型
-    llm_api_key="sk-...",               # 可选，也可通过环境变量 OPENAI_API_KEY 设置
-    lifecycle_config=LifecycleConfig(   # 可选，自定义生命周期配置
-        max_memories_per_type=100,
+    storage_path="./hmr_data",              # 数据存储根目录
+    embedding_model="text-embedding-3-small",# OpenAI 模型名
+    llm_api_key="sk-...",                   # API Key（可用环境变量代替）
+    lifecycle_config=LifecycleConfig(        # 生命周期配置（可选）
+        max_memories_per_type=80,
         check_interval_ingests=10,
     )
 )
@@ -348,665 +196,967 @@ hmr = HMR(
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `storage_path` | `"./hmr_data"` | 所有数据持久化目录 |
-| `embedding_model` | `"text-embedding-3-small"` | OpenAI Embedding 模型名 |
-| `llm_api_key` | `None` | OpenAI API Key（可选） |
-| `lifecycle_config` | 默认配置 | 生命周期引擎配置 |
+| `embedding_model` | `"text-embedding-3-small"` | OpenAI Embedding 模型 |
+| `llm_api_key` | `None` | 也可设置 `OPENAI_API_KEY` 环境变量 |
+| `lifecycle_config` | 默认值 | 见 [配置参考](#10-配置参考) |
 
 ---
 
-### 摄入记忆 ingest
-
-将新知识、事件、决策存入 HMR。
+### 4.2 摄入记忆 ingest
 
 ```python
 memory = hmr.ingest(
-    content="在高并发下 IPC 队列积压，任务等待超过 500ms，导致下游超时",
-    memory_type="execution",
-    title="压测故障记录 #1",
+    content="IPC 队列在并发 > 500 时积压超 1000 条，响应超时",
+    memory_type="execution",    # 手动指定类型，或省略让 Policy 自动判断
+    title="IPC 积压故障记录",
     metadata={
-        "tags": ["ipc", "压测", "超时"],
+        "tags": ["ipc", "故障", "超时"],
         "runtime_dependencies": ["IPC 设计原则", "调度器"],
         "confidence": 0.9
-    }
+    },
+    use_policy=False            # True = Policy 自动推断 type 和 confidence
 )
-
-print(memory.id)             # mem_a1b2c3d4
-print(memory.semantic_summary)  # 自动生成的摘要
 ```
 
-**参数说明：**
+**use_policy=True 模式：**
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `content` | str | ✅ | 记忆内容（支持长文本） |
-| `memory_type` | str | 否 | 记忆类型，默认 `"concept"` |
-| `title` | str | 否 | 标题，默认自动生成 |
-| `metadata` | dict | 否 | 包含 tags、runtime_dependencies、confidence |
+```python
+# Policy 自动判断类型（中英文均支持）
+m1 = hmr.ingest("IPC 积压导致超时，消费者线程不足", use_policy=True)
+print(m1.type)        # execution
+
+m2 = hmr.ingest("建议使用异步消息队列处理高并发", use_policy=True)
+print(m2.type)        # concept
+
+m3 = hmr.ingest("决定采用 asyncio + 优先级堆方案", use_policy=True)
+print(m3.type)        # decision
+
+m4 = hmr.ingest("因为死锁导致任务阻塞，根因是环形等待", use_policy=True)
+print(m4.type)        # reflection
+```
 
 **ingest 自动触发：**
 - 向量 Embedding 生成
 - SM-2 时间状态初始化
 - Memory Graph 实体提取
-- 生命周期检查（每 N 次）
+- 生命周期检查（后台异步）
 - 认知图（CWG）更新
 
 ---
 
-### 召回记忆 recall
-
-智能召回相关记忆，由 Memory Scheduler 自动选择最优策略。
+### 4.3 召回记忆 recall
 
 ```python
 result = hmr.recall(
-    query="为什么 IPC 延迟导致调度器超时",
-    context={"active_goal": "优化调度器"},  # 可选，提供更好的上下文
+    query="为什么 IPC 超时",
+    context={"active_goal": "排查超时", "pending_tasks": [...]},
     top_k=5,
-    strategy="jit"   # 可选，手动指定策略
+    strategy="jit",     # 手动指定策略（可省略，自动调度）
+    use_policy=True     # Policy 辅助调度决策（默认 True）
 )
 
-print(result.recall_reasoning)   # "[JIT] JIT编译 2 步，查询轨迹..."
+# 查看结果
+print(result.recall_reasoning)    # "[JIT] JIT编译 2 步，..."
 for mem in result.memory_objects:
     score = result.relevance_scores[mem.id]
-    print(f"  [{score:.2f}] {mem.title}")
+    print(f"[{score:.2f}] [{mem.type}] {mem.title}")
 ```
 
-**参数说明：**
+**策略选项：**
 
-| 参数 | 类型 | 默认 | 说明 |
-|------|------|------|------|
-| `query` | str | None | 查询字符串 |
-| `context` | dict | None | 当前上下文（含 active_goal 等） |
-| `top_k` | int | 5 | 返回记忆数量 |
-| `strategy` | str | None | 手动指定策略，见下表 |
+| strategy | 适用场景 | 特点 |
+|----------|---------|------|
+| `"semantic"` | 简单相似查询 | 单次向量检索，最快 |
+| `"temporal"` | 时间相关（"最近"、"上次"） | 按新鲜度排序 |
+| `"jit"` | 复杂推理（"为什么"、"原因"） | 多步检索，最准 |
+| `"hybrid"` | 有明确工作目标 | 语义 + 图路径组合 |
+| `"graph"` | 实体关系查询 | 图路径补充候选 |
+| `None` | 通用（推荐） | Scheduler 自动决策 |
 
-**策略选项（strategy）：**
-
-| 值 | 适用场景 | 特点 |
-|----|---------|------|
-| `"semantic"` | 简单相似性查询 | 单次向量检索，最快 |
-| `"temporal"` | 时间相关查询（"最近的...""上次..."） | 按时间权重排序 |
-| `"jit"` | 复杂推理查询（"为什么...""原因..."） | 多步检索，最准 |
-| `"hybrid"` | 有明确工作目标时 | 语义 + 图路径组合 |
-| `"graph"` | 需要实体关系时 | 图路径补充候选 |
-
-> 不指定 `strategy` 时，Scheduler 自动根据查询特征决策。
-
-**返回值 RecallResult：**
+**返回值：**
 
 ```python
-result.memory_objects    # List[MemoryObject]，按相关性排序
-result.recall_reasoning  # str，说明用了什么策略和推理过程
-result.relevance_scores  # Dict[str, float]，每条记忆的得分
-result.predicted_need    # List[str]，系统预测的需求
+result.memory_objects     # List[MemoryObject]，按相关性排序
+result.recall_reasoning   # 策略说明和推理过程
+result.relevance_scores   # Dict[memory_id, float]
+result.predicted_need     # 系统预测的需求列表
 ```
 
 ---
 
-### 运行时状态
+### 4.4 运行时状态
 
-保存和恢复 AI 的完整认知状态，实现跨会话连续性。
-
-#### 保存状态
+#### 保存
 
 ```python
 state = hmr.save_runtime_state(
     goal="设计异步调度器",
-    plan=[
-        "研究 IPC 协议 ✓",
-        "设计任务队列 API",
-        "实现优先级调度",
-        "压测验证"
-    ],
+    plan=["研究 IPC ✓", "设计 API ✓", "实现", "压测"],
     context={
-        "current_focus": "任务队列 API 设计",
-        "blockers": ["需要确认 IPC 协议规格"],
-        "confidence": 0.7
+        "current_focus": "实现阶段",
+        "blockers": [],
+        "confidence": 0.85
     }
 )
-
 print(state.runtime_id)   # rt_a1b2c3d4
 ```
 
-#### 恢复状态
+#### 恢复
 
 ```python
-# 重启后
 hmr2 = HMR(storage_path="./my_project")
+state = hmr2.restore_runtime_state()           # 最新状态
+# 或
+state = hmr2.restore_runtime_state("rt_a1b2c3d4")  # 指定状态
 
-# 恢复最新状态
-state = hmr2.restore_runtime_state()
-
-# 或恢复特定状态
-state = hmr2.restore_runtime_state(runtime_id="rt_a1b2c3d4")
-
-if state:
-    print(state.active_goal)     # "设计异步调度器"
-    print(state.current_plan)    # ["研究 IPC 协议 ✓", ...]
-    print(state.current_context) # {"current_focus": "任务队列 API 设计", ...}
+print(state.active_goal)    # "设计异步调度器"
+print(state.current_plan)   # ["研究 IPC ✓", ...]
 ```
 
-**恢复后自动执行：**
-1. 恢复 SM-2 记忆状态（哪些记忆复习过几次）
-2. 预加载与当前 goal 最相关的记忆
-3. 输出预加载的策略说明
+**恢复自动执行：**
+1. SM-2 记忆状态恢复（每条记忆的复习历史）
+2. 按当前 goal 预加载最相关记忆
+3. Policy 权重恢复
 
 ---
 
-### 代理工作区
-
-每个代理（Agent）拥有独立的工作区，持久化到磁盘。
+### 4.5 代理工作区
 
 ```python
-# 获取或创建工作区
+# 获取或创建工作区（自动持久化）
 ws = hmr.get_workspace("agent_backend")
 
-# 设置当前目标和任务
 ws.active_goal = "实现任务队列"
-ws.push_task({"name": "设计队列接口", "status": "todo", "priority": 1})
-ws.push_task({"name": "实现优先级堆", "status": "todo", "priority": 2})
+ws.push_task({"name": "设计接口", "status": "todo"})
+ws.push_task({"name": "实现优先级堆", "status": "todo"})
+ws.temporary_thoughts.append("考虑用 heapq 实现最小堆")
 
-# 临时记录思考（不写入长期记忆）
-ws.temporary_thoughts.append("考虑使用 heapq 实现最小堆")
-
-# 手动保存工作区（ingest 后会自动保存，也可手动触发）
+# 手动保存（或等待下次 ingest 自动触发）
 hmr.save_workspace("agent_backend")
 
-# 完成一个任务
-completed = ws.pop_task()
-print(completed["name"])  # "实现优先级堆"（后进先出）
+# 完成任务
+done = ws.pop_task()   # 后进先出，返回最后推入的任务
 
-# 多代理场景
-ws_frontend = hmr.get_workspace("agent_frontend")
-ws_frontend.active_goal = "构建管理界面"
-
-# 重启后工作区自动恢复
+# 重启后完整恢复
 hmr2 = HMR(storage_path="./my_project")
-ws_recovered = hmr2.get_workspace("agent_backend", create=False)
-print(ws_recovered.active_goal)    # "实现任务队列"
-print(len(ws_recovered.task_stack))  # 1（已完成一个）
+ws2 = hmr2.get_workspace("agent_backend", create=False)
+print(ws2.active_goal)         # "实现任务队列"
+print(len(ws2.task_stack))     # 1（已完成一个）
 ```
 
 ---
 
-### 记忆压缩
-
-将多条相关记忆压缩为一条抽象知识，控制记忆总量。
+### 4.6 记忆压缩
 
 ```python
-# 压缩指定类型的记忆
+# 按类型压缩
 compressed = hmr.compress_memories(
-    memory_type="execution",   # 压缩所有执行记录
-    max_memories=20            # 最多处理 20 条
+    memory_type="execution",
+    max_memories=20
 )
 
-# 压缩指定 ID 的记忆
+# 按 ID 压缩
 compressed = hmr.compress_memories(
     memory_ids=["mem_001", "mem_002", "mem_003"]
 )
 
 if compressed:
-    print(compressed.title)    # "[压缩] 故障记录 + 压测"
-    print(compressed.content)  # 提炼的抽象知识
+    print(compressed.title)    # "[压缩] 积压记录 + 故障"
     print(compressed.tags)     # [..., "compressed"]
 ```
 
-**压缩策略：**
-- 有 OpenAI API Key → LLM 提炼核心规律和模式
-- 无 API Key → TF-IDF 关键词摘要
-
-**自动压缩：**  
-配置 `LifecycleConfig.max_memories_per_type` 后，当同类型记忆超过阈值时，
-生命周期引擎会在后台自动触发压缩，无需手动调用。
+压缩策略：有 OpenAI Key → LLM 提炼，无 Key → TF-IDF 关键词摘要。
 
 ---
 
-### 系统状态
+## 5. v2.0 新增：ThoughtChain 推理链
+
+### 核心理念
+
+```
+传统：只记录"发生了什么"（execution 记忆）
+v2.0：记录"为什么这样想"（推理链 = 完整思维过程）
+
+价值：
+  1. 可追溯性 — 回溯当时的推理路径
+  2. 反思学习 — 找出哪些判断有误
+  3. 知识传递 — 接手任务时继承完整思维上下文
+  4. 决策复用 — 历史成功链直接指导新问题
+```
+
+### API 详解
+
+#### start_thinking — 创建思维链
 
 ```python
-status = hmr.get_system_status()
+chain = hmr.start_thinking(
+    goal="排查调度器 IPC 超时根因",
+    expected_outcome="找到根因并给出解决方案",  # 可选，用于反思时对比
+    agent_id="agent_backend"                     # 可选，关联代理
+)
+print(chain.chain_id)   # tc_a1b2c3d4
+print(chain.status)     # ChainStatus.OPEN
+```
 
-print(f"版本:          {status['version']}")
-print(f"记忆总数:      {status['memory_fs']['total_memories']}")
-print(f"向量总数:      {status['vector_store']['total_vectors']}")
-print(f"数据同步:      {status['synced']}")         # True/False
-print(f"Embedding:     {status['embedding_provider']}")  # openai/sentence_transformers/tfidf
-print(f"图节点数:      {status['memory_graph']['total_nodes']}")
-print(f"图边数:        {status['memory_graph']['total_edges']}")
-print(f"调度主策略:    {status['scheduler']['dominant_strategy']}")
-print(f"缓存命中率:    {status['scheduler']['cache_hit_rate']}")
-print(f"逾期复习:      {status['overdue_reviews']} 条")
-print(f"活跃工作区:    {status['active_workspaces']}")
+#### think — 追加思维节点
 
-# 生命周期状态
-lc = status['lifecycle']
-print(f"新鲜记忆:      {lc['by_state']['fresh']}")
-print(f"活跃记忆:      {lc['by_state']['active']}")
-print(f"衰退记忆:      {lc['by_state']['fading']}")
-print(f"休眠记忆:      {lc['by_state']['dormant']}")
-print(f"风险记忆:      {len(lc['at_risk'])} 条（即将被自动删除）")
+```python
+from hmr.engines.thought_chain import ThoughtType
+
+# 每次 think 都接在上一个节点后（自动推断 parent_id）
+hmr.think(chain.chain_id, "队列深度持续 > 800，消费速度 < 生产速度",
+          ThoughtType.OBSERVATION, confidence=0.95)
+
+hmr.think(chain.chain_id, "可能原因1：消费者线程数不足",
+          ThoughtType.HYPOTHESIS, confidence=0.7)
+
+hmr.think(chain.chain_id, "可能原因2：消费者被 CPU 密集任务抢占",
+          ThoughtType.HYPOTHESIS, confidence=0.8)
+
+# 附带相关记忆 ID（标注决策依据）
+recall_result = hmr.recall(query="IPC 背压机制")
+supporting_ids = [m.id for m in recall_result.memory_objects[:2]]
+
+hmr.think(chain.chain_id, "选择：扩容消费者 x3 + 提升线程优先级",
+          ThoughtType.DECISION, confidence=0.8, memory_ids=supporting_ids)
+
+hmr.think(chain.chain_id, "已部署：消费者线程 x3 + 优先级提升",
+          ThoughtType.ACTION, confidence=1.0)
+```
+
+#### reflect_on — 触发反思
+
+```python
+result = hmr.reflect_on(
+    chain_id=chain.chain_id,
+    actual_outcome="队列积压从 800 降至 50，超时消失",
+    rating=0.92      # 0-1，1=完全成功；不传则自动推断
+)
+
+print(result.accuracy)          # 0.75（正确节点 / 总节点）
+print(result.correct_nodes)     # 正确的思维节点 ID 列表
+print(result.wrong_nodes)       # 错误的思维节点 ID 列表
+print(result.key_mistakes)      # 主要错误描述
+print(result.insights)          # 提炼的洞察
+print(result.suggested_memory)  # 建议存入长期记忆的内容（自动执行）
+```
+
+反思后：
+- 每个思维节点获得 `was_correct` 标记（True / False / None）
+- 高价值洞察自动存为 `reflection` 类型记忆
+- 链状态变为 `CLOSED`
+
+#### best_decision_for — 查历史最优决策
+
+```python
+best = hmr.best_decision_for("IPC 队列积压问题")
+# → "[历史参考 准确率=90%] 扩容消费者线程 x3 + 提升优先级"
+# → 如果没有相关历史链则返回 None
+```
+
+#### 查看推理链
+
+```python
+# 获取单条链
+chain_obj = hmr.thought_chain.get_chain(chain.chain_id)
+print(chain_obj.to_summary())   # 人类可读的摘要
+
+# 查找类似历史链
+similar = hmr.thought_chain.find_similar_chains("IPC 超时", top_k=3)
+
+# 统计
+stats = hmr.thought_chain.get_stats()
+print(stats["total_chains"])             # 总链数
+print(stats["avg_reflection_accuracy"]) # 平均反思准确率
+print(stats["active_chains"])           # 活跃链数
+```
+
+### 完整推理链示例
+
+```python
+from hmr.engines.thought_chain import ThoughtType
+
+# 场景：多天排障任务
+chain = hmr.start_thinking(
+    goal="调度器高负载下响应超时根因分析",
+    expected_outcome="响应时间 p99 < 100ms"
+)
+
+# Day 1：收集观察
+hmr.think(chain.chain_id, "p99 延迟 1200ms，远超 SLA 100ms", ThoughtType.OBSERVATION)
+hmr.think(chain.chain_id, "IPC 队列积压 > 1000 条",           ThoughtType.OBSERVATION)
+hmr.think(chain.chain_id, "CPU 使用率仅 40%，不是 CPU 瓶颈",  ThoughtType.OBSERVATION)
+
+# 提出假设
+hmr.think(chain.chain_id, "假设：消费者线程数量不足",          ThoughtType.HYPOTHESIS, 0.7)
+hmr.think(chain.chain_id, "假设：IO 阻塞导致消费者停滞",       ThoughtType.HYPOTHESIS, 0.6)
+
+# Day 2：验证假设后做决策
+hmr.think(chain.chain_id, "验证：消费者线程确实在等待 IO",     ThoughtType.OBSERVATION)
+hmr.think(chain.chain_id, "决定：改用异步 IO + 扩容消费者",    ThoughtType.DECISION, 0.85)
+hmr.think(chain.chain_id, "已完成异步 IO 改造和扩容部署",      ThoughtType.ACTION)
+
+# 执行完毕后反思
+ref = hmr.reflect_on(
+    chain.chain_id,
+    "p99 降至 45ms，优于 SLA 目标",
+    rating=0.95
+)
+
+# 查看思维链摘要
+print(hmr.thought_chain.get_chain(chain.chain_id).to_summary())
 ```
 
 ---
 
-## 高级组件
+## 6. v2.0 新增：Memory Policy 策略引擎
+
+### 核心理念
+
+```
+v1.x：存/取/忘策略全部硬编码
+v2.0：从反馈中学习，策略权重动态更新
+
+三个子策略：
+  IngestPolicy  → 什么值得存？存成什么类型？置信度多少？
+  RecallPolicy  → 用什么策略召回？top_k 设多少？
+  ForgetPolicy  → 记忆以多快速度衰减？什么时候删除？
+```
+
+### feedback — 策略反馈（核心）
+
+```python
+# 召回结果有用
+hmr.feedback(
+    event_type="recall_hit",
+    memory_ids=[m.id for m in result.memory_objects[:2]],
+    signal=0.85,             # 正数 = 正向反馈
+    query="IPC 超时原因",
+    strategy="jit"
+)
+
+# 召回结果没用到
+hmr.feedback(
+    event_type="recall_miss",
+    memory_ids=[m.id for m in bad_results],
+    signal=-0.5
+)
+
+# 任务成功
+hmr.feedback(
+    event_type="task_success",
+    memory_ids=related_memory_ids,
+    signal=0.9,
+    context={"memory_type": "execution"}
+)
+
+# 任务失败
+hmr.feedback(
+    event_type="task_failure",
+    memory_ids=related_memory_ids,
+    signal=-0.7
+)
+
+# 压缩后召回质量提升
+hmr.feedback(
+    event_type="compress_gain",
+    memory_ids=[compressed_memory.id],
+    signal=0.6
+)
+```
+
+**event_type 说明：**
+
+| 事件 | signal 范围 | 说明 |
+|------|-----------|------|
+| `recall_hit` | 0.5 ~ 1.0 | 召回结果被实际使用 |
+| `recall_miss` | -1.0 ~ -0.1 | 召回结果完全无用 |
+| `task_success` | 0.5 ~ 1.0 | 完整任务成功 |
+| `task_failure` | -1.0 ~ -0.1 | 任务失败 |
+| `compress_gain` | 0.3 ~ 0.8 | 压缩提升了召回质量 |
+
+### Policy 辅助的 ingest / recall
+
+```python
+# ingest 时让 Policy 自动决策
+mem = hmr.ingest(content, use_policy=True)
+# Policy 自动推断 memory_type 和 confidence
+# 中英文均支持，基于字符级关键词匹配
+
+# recall 时让 Policy 辅助调度
+result = hmr.recall(query, use_policy=True)  # 默认 True
+# Policy 根据历史命中率调整 strategy 和 top_k
+```
+
+### 查看策略状态
+
+```python
+stats = hmr.policy.get_stats()
+print(stats["total_feedback"])      # 总反馈次数
+print(stats["positive_feedback"])   # 正向反馈次数
+print(stats["positive_ratio"])      # 正向比例（越高策略越准）
+print(stats["recall_hit_rate"])     # 召回命中率
+print(stats["policy_updates"])      # 策略权重更新次数
+
+# 当前权重偏置（调试用）
+weights = hmr.policy.get_policy_weights_summary()
+print(weights["ingest_type_bias"])      # 各类型的分类偏向
+print(weights["recall_strategy_bias"]) # 各策略的使用偏向
+```
+
+### Policy 最佳实践
+
+```python
+# 1. 每次召回后及时反馈
+result = hmr.recall(query="...")
+used_memories = [result.memory_objects[0]]  # 实际用到的记忆
+hmr.feedback("recall_hit", [m.id for m in used_memories], signal=0.8,
+             query="...", strategy=result.recall_reasoning.split("]")[0].strip("["))
+
+# 2. 任务结束时汇总反馈
+if task_succeeded:
+    hmr.feedback("task_success", all_related_memory_ids, signal=0.9)
+else:
+    hmr.feedback("task_failure", all_related_memory_ids, signal=-0.6)
+
+# 3. 用 use_policy=True 让系统自动学习最优存储决策
+for log_entry in daily_logs:
+    hmr.ingest(log_entry, use_policy=True)
+    # Policy 随时间学习该项目的记忆风格
+```
+
+---
+
+## 7. v2.0 新增：Self-Evolution 自我演化
+
+### 核心理念
+
+```
+问题：记忆库随时间膨胀，大量重复/冗余/矛盾记忆积累
+解决：演化引擎主动优化记忆库结构
+
+三个核心操作：
+  abstract：相似记忆 → 抽象概念（知识提炼）
+  resolve：矛盾记忆 → 保留高置信，降低低置信（冲突解决）
+  suggest：分析使用模式 → 推荐最优配置参数
+```
+
+### evolve — 执行演化
+
+```python
+# 先预览（dry_run=True 只分析不修改）
+preview = hmr.evolve(dry_run=True)
+print(preview["summary"])
+for action in preview["actions"]:
+    print(f"  {action}")
+# 输出：
+# 演化完成：抽象 2 个簇，解决 1 对矛盾
+#   [预览] 可抽象 5 条 [execution] 记忆
+#   [预览] 矛盾：《IPC 应同步》vs《IPC 应异步》
+
+# 确认后正式执行
+report = hmr.evolve(dry_run=False)
+print(report["summary"])
+print(report["abstractions"])            # 抽象了几个簇
+print(report["contradictions_resolved"]) # 解决了几对矛盾
+print(report["suggestions"])             # 配置优化建议
+```
+
+### 演化报告解读
+
+```python
+report = hmr.evolve()
+
+# summary：一句话总结
+print(report["summary"])
+# → "演化完成：抽象 2 个簇，解决 1 对矛盾，健康度: ✅ 健康"
+
+# actions：每个操作的详情
+for action in report["actions"]:
+    print(action)
+# → ✅ 抽象 6 条 [execution] → 《[抽象] 积压记录 + 超时》
+# → 🔧 解决矛盾：《IPC 应同步》vs《IPC 应异步》（方向相反）
+# → 💡 建议：某类型记忆数 120 过多，建议降低阈值到 80
+
+# suggestions：配置优化建议
+sugg = report["suggestions"]
+print(sugg["suggested_config"])   # 推荐的 LifecycleConfig 参数
+print(sugg["reasons"])            # 推荐理由
+print(sugg["current_health"])     # 系统健康状态
+```
+
+### 演化频率建议
+
+```python
+# 方案 A：定期手动执行（推荐）
+# 每积累 50-100 条新记忆后执行一次
+if hmr.memory_fs.get_statistics()["total_memories"] % 100 == 0:
+    hmr.evolve()
+
+# 方案 B：每日定时
+import schedule
+schedule.every().day.at("02:00").do(lambda: hmr.evolve())
+
+# 方案 C：任务结束后
+# 每次重大任务完成后执行
+hmr.evolve()
+```
+
+### 查看演化历史
+
+```python
+evo_stats = hmr.evolution.get_stats()
+print(evo_stats["total_operations"])    # 总操作次数
+print(evo_stats["by_operation"])        # 按类型分布
+# {"abstract": 5, "resolve": 2}
+print(evo_stats["recent_operations"])   # 最近 5 次操作
+```
+
+---
+
+## 8. v1.5 高级组件回顾
 
 ### Memory Scheduler 调度器
 
-调度器决定每次召回用什么策略，是 HMR 从"检索工具"变成"记忆操作系统"的关键。
-
 ```python
-# 查看调度统计
-stats = hmr.scheduler.get_stats()
-print(stats["strategy_counts"])   # 各策略使用次数
-print(stats["cache_hit_rate"])    # 热缓存命中率
-print(stats["dominant_strategy"]) # 最常用的策略
-
-# 手动生成调度计划（不执行召回，只看调度决策）
+# 手动查看调度决策（不实际召回）
 plan = hmr.scheduler.schedule(
-    query="为什么队列积压导致超时",
+    query="为什么 IPC 超时导致调度器响应慢",
     context={"active_goal": "优化调度器"}
 )
-print(plan.strategy.value)  # "hybrid"
-print(plan.use_jit)         # True
-print(plan.top_k)           # 6
-print(plan.reasoning)       # "有活跃目标（优化调度器），混合策略"
+print(plan.strategy.value)   # "jit"
+print(plan.use_jit)           # True
+print(plan.top_k)             # 8
+print(plan.reasoning)         # "查询复杂，使用 JIT 多步检索"
 
-# 手动管理热缓存
-hmr.scheduler.invalidate_cache("mem_001")  # 记忆更新后使相关缓存失效
+# 调度统计
+stats = hmr.scheduler.get_stats()
+print(stats["strategy_counts"])    # 各策略使用次数
+print(stats["cache_hit_rate"])     # 热缓存命中率
+print(stats["dominant_strategy"]) # 最常用策略
 ```
-
-**热缓存说明：**
-- 容量：50 条（可在 `HotCache` 初始化时调整）
-- TTL：300 秒（5分钟）
-- 策略：LRU（最近最少使用自动淘汰）
-- 同一查询的第二次请求直接从缓存返回，不再检索
-
----
 
 ### JIT Memory Compiler 即时编译器
 
-把单次向量检索升级为多步推理检索，适合复杂问题。
-
 ```python
-# 直接使用 JIT Compiler（recall 会自动调用，也可手动使用）
+# 直接调用（recall 复杂查询时自动触发）
 result = hmr.jit_compiler.compile(
     query="为什么 IPC 延迟导致调度器级联超时",
-    context={"active_goal": "排查线上故障"},
+    context={"active_goal": "排查故障"},
     top_k=5,
-    max_steps=3   # 最多 3 步检索
+    max_steps=3
 )
 
-# 查看每步检索详情
+# 查看多步检索详情
 for step in result.steps:
-    print(f"第{step.step + 1}步: {step.query}")
-    print(f"  找到: {len(step.memories)} 条")
-    print(f"  置信度: {step.confidence}")
+    print(f"步骤{step.step+1}: {step.query}")
+    print(f"  找到 {len(step.memories)} 条，置信度 {step.confidence}")
     print(f"  缺口: {step.gaps}")
 
-# 查看查询改写轨迹
 print("查询轨迹:", result.query_trace)
-# ["为什么 IPC 延迟导致调度器级联超时", "IPC 设计原则 超时", "调度器 超时"]
-
-print(result.reasoning)
-# "JIT编译 2 步，查询轨迹：原始 → 改写1 → 改写2，候选 15 条 → 精选 5 条（置信度：0.82）"
 ```
 
-**JIT 何时触发：**
-- 查询包含"为什么"、"原因"、"cause"等推理词 → 自动触发
-- 查询包含"历史"、"演化"、"timeline"等时间跨度词 → 自动触发
-- `recall(strategy="jit")` 手动指定
-
----
-
-### Memory Lifecycle Engine 生命周期引擎
-
-记忆会自然衰退，不再需要的记忆自动清理。
+### Memory Lifecycle 生命周期
 
 ```python
 from hmr.engines.lifecycle import LifecycleConfig
 
 # 自定义配置
 config = LifecycleConfig(
-    max_memories_per_type=80,      # 同类型超过 80 条触发自动压缩
-    prune_retrievability=0.05,     # SM-2 可提取性低于 5% 考虑删除
-    prune_min_age_days=7,          # 至少存在 7 天才允许删除
-    prune_require_zero_access=True,# 只删除从未被访问的记忆
-    consolidation_batch=20,        # 每次压缩最多 20 条
-    auto_enabled=True,             # 是否开启自动检查
-    check_interval_ingests=10,     # 每 10 次 ingest 检查一次
+    max_memories_per_type=80,       # 超过触发自动压缩
+    prune_retrievability=0.05,      # SM-2 可提取性低于 5% 考虑删除
+    prune_min_age_days=7,           # 至少存在 7 天才允许删除
+    prune_require_zero_access=True, # 只删从未访问的记忆
+    auto_enabled=True,
+    check_interval_ingests=10,
 )
+hmr = HMR(storage_path="./data", lifecycle_config=config)
 
-hmr = HMR(storage_path="./my_project", lifecycle_config=config)
-
-# 手动触发完整检查
+# 手动触发检查
 report = hmr.lifecycle.check_now(memory_type="execution")
-print(report.summary())
-# "检查 50 条；删除 3 条；压缩 20 → 1 条"
-print(report.reasons)
-# ["删除 [execution]《压测记录#1》（可提取性=0.02，存在14天，访问0次）", ...]
+print(report.summary())   # "检查 50 条；删除 3 条；压缩 20 → 1 条"
 
-# 查看生命周期统计
-stats = hmr.lifecycle.get_lifecycle_stats()
-print(stats["by_state"])   # {"fresh": 5, "active": 30, "fading": 10, "dormant": 3}
-print(stats["at_risk"])    # 即将被删除的记忆列表
+# 记忆生命周期统计
+lc_stats = hmr.lifecycle.get_lifecycle_stats()
+print(lc_stats["by_state"])
+# {"fresh": 5, "active": 30, "fading": 10, "dormant": 3}
 ```
-
-**记忆生命周期状态：**
-
-| 状态 | 条件 | 说明 |
-|------|------|------|
-| `fresh` | 创建不到 1 天 | 新摄入的记忆 |
-| `active` | SM-2 可提取性 > 0.7 | 最近被访问，记忆清晰 |
-| `fading` | 可提取性 0.3–0.7 | 正在褪色，需要复习 |
-| `dormant` | 可提取性 < 0.3 | 久未使用，接近遗忘 |
-| `pruned` | 可提取性 < 0.05 + 从未访问 + 存在 7 天+ | 自动删除 |
-
----
 
 ### Memory Graph 记忆图层
 
-自动从记忆中提取实体和关系，构建结构化认知网络。
-
 ```python
-# 图层随 ingest 自动更新，也可手动查询
-
-# 查找与某实体相关的所有节点（深度 2 跳）
+# 图随 ingest 自动构建
 nodes = hmr.memory_graph.find_related("调度器", depth=2)
-for node in nodes:
-    print(f"[{node.node_type.value}] {node.label}  ({len(node.memory_ids)} 条记忆)")
+for n in nodes:
+    print(f"[{n.node_type.value}] {n.label} ({len(n.memory_ids)} 条记忆)")
 
-# 获取因果链
+# 因果链
 chain = hmr.memory_graph.get_causal_chain("死锁")
 for node, edge in chain:
-    print(f"  →({edge.edge_type.value})→ {node.label}")
-# →(causal)→ 队列积压 →(causal)→ 响应超时
+    print(f"→({edge.edge_type.value})→ {node.label}")
 
-# 图路径召回（找实体相关的所有记忆 ID）
-memory_ids = hmr.memory_graph.get_memory_ids_for_query("IPC 超时原因")
-print(f"图路径找到 {len(memory_ids)} 条相关记忆")
-
-# 自动语义聚类
+# 语义聚类
 clusters = hmr.memory_graph.auto_cluster()
-for c in clusters:
-    print(f"聚类「{c.label}」: {len(c.node_ids)} 个节点")
 
 # 图统计
-stats = hmr.memory_graph.get_stats()
-print(stats)
-# {"total_nodes": 25, "total_edges": 38,
-#  "node_types": {"entity": 15, "episode": 8, "concept": 2},
-#  "edge_types": {"causal": 10, "temporal": 8, "semantic": 12, "part_of": 8}}
+print(hmr.memory_graph.get_stats())
 ```
-
-**图节点类型：**
-
-| 类型 | 说明 | 来源 |
-|------|------|------|
-| `entity` | 系统/组件名（调度器、IPC、Agent） | 大写词 + 技术名词 |
-| `episode` | 完整事件情节 | `execution` / `reflection` 类型记忆 |
-| `concept` | 抽象概念（异步、死锁、优先级） | 中文技术名词 |
-
-**图边类型：**
-
-| 类型 | 含义 | 示例 |
-|------|------|------|
-| `causal` | 因果 A → B | 死锁 → 超时 |
-| `temporal` | 时序 A 先于 B | 队列满 → 消息丢失 |
-| `semantic` | 语义相近 | IPC ≈ 消息队列 |
-| `part_of` | 组成 A ∈ B | 队列 ∈ 调度器 |
 
 ---
 
-## 完整工作流示例
+## 9. 完整工作流示例
 
-### 场景：多天开发项目
+### 场景一：多天技术攻关
 
 ```python
 from hmr.core.hmr import HMR
+from hmr.engines.thought_chain import ThoughtType
 
-# ═══ 第一天：研究阶段 ═══════════════════════════════════════
+# ═══ 第一天：问题发现 ══════════════════════════════════════════
+hmr = HMR(storage_path="./ipc_project")
 
-hmr = HMR(storage_path="./scheduler_project")
+# 记录问题背景
+hmr.ingest("线上调度器 p99 延迟从 50ms 上升至 1200ms，持续 2 小时",
+           memory_type="execution", title="线上延迟告警",
+           metadata={"tags": ["线上", "告警", "p99"]})
 
-# 记录研究发现
-hmr.ingest(
-    "IPC 应采用异步消息队列，基于 backpressure 控制背压，"
-    "避免生产者速度超过消费者导致内存溢出",
-    memory_type="concept",
-    title="IPC 设计原则",
-    metadata={"tags": ["ipc", "async", "backpressure"]}
+# 开始推理链
+chain = hmr.start_thinking(
+    goal="排查调度器延迟从 50ms 上升至 1200ms 的根因",
+    expected_outcome="找到根因，将 p99 恢复至 100ms 以下"
 )
-
-hmr.ingest(
-    "尝试了基于线程锁的同步调度，在并发 > 50 时出现死锁，"
-    "根因是任务 A 等待任务 B 释放锁，形成环形等待",
-    memory_type="execution",
-    title="同步调度失败记录",
-    metadata={"tags": ["failure", "deadlock"], "confidence": 0.95}
-)
+hmr.think(chain.chain_id, "p99 延迟 1200ms，CPU 使用率仅 40%",
+          ThoughtType.OBSERVATION, 0.95)
+hmr.think(chain.chain_id, "监控显示 IPC 队列深度持续 > 1000",
+          ThoughtType.OBSERVATION, 0.95)
+hmr.think(chain.chain_id, "非 CPU 瓶颈，怀疑是 IO 阻塞",
+          ThoughtType.HYPOTHESIS, 0.7)
 
 # 保存状态
 hmr.save_runtime_state(
-    goal="设计异步调度器",
-    plan=["研究 IPC 协议 ✓", "研究调度算法 ✓", "设计 API", "实现", "压测"],
-    context={"current_phase": "设计", "confidence": 0.6}
+    goal="排查调度器延迟根因",
+    plan=["收集监控数据 ✓", "提出假设 ✓", "验证假设", "修复", "验收"],
+    context={"active_chain": chain.chain_id, "confidence": 0.5}
 )
+print("第一天完成，状态已保存")
 
-print("第一天工作完成，状态已保存")
+# ═══ 第二天：验证和修复 ═══════════════════════════════════════
+hmr2 = HMR(storage_path="./ipc_project")
+state = hmr2.restore_runtime_state()
+active_chain_id = state.current_context.get("active_chain")
 
-# ═══ 第三天：继续开发 ════════════════════════════════════════
-
-hmr = HMR(storage_path="./scheduler_project")   # 新进程启动
-
-# 恢复状态（自动预加载相关记忆）
-state = hmr.restore_runtime_state()
-print(f"继续：{state.active_goal}")
-print(f"计划进度：{state.current_plan}")
-
-# 复杂查询，自动触发 JIT 多步检索
-result = hmr.recall(
-    query="为什么之前的同步方案会死锁，异步如何解决这个问题",
+# 智能召回（复杂查询自动触发 JIT）
+result = hmr2.recall(
+    query="IO 阻塞导致消费者停滞的排查方法",
     context={"active_goal": state.active_goal}
 )
-print(f"召回策略: {result.recall_reasoning[:50]}")
+hmr2.feedback("recall_hit", [result.memory_objects[0].id], 0.8,
+              query="IO 阻塞排查")
 
-# 记录新决策
-hmr.ingest(
-    "决定采用 asyncio 事件循环 + 优先级堆实现调度器，"
-    "完全消除线程锁，用协程切换替代上下文切换",
-    memory_type="decision",
-    title="调度器技术选型决定",
-    metadata={
-        "tags": ["asyncio", "scheduler", "decision"],
-        "runtime_dependencies": ["IPC 设计原则", "同步调度失败记录"]
-    }
+# 继续推理链
+chain_obj = hmr2.thought_chain.get_chain(active_chain_id)
+if chain_obj:
+    hmr2.think(active_chain_id, "Profiling 确认：消费者线程在等待同步 IO",
+               ThoughtType.OBSERVATION, 0.98)
+    hmr2.think(active_chain_id, "决定：将同步 IO 改为异步，同时扩容消费者至 x3",
+               ThoughtType.DECISION, 0.9)
+    hmr2.think(active_chain_id, "已完成异步 IO 改造 + 消费者扩容部署",
+               ThoughtType.ACTION, 1.0)
+
+    # 部署后观察
+    hmr2.think(active_chain_id, "p99 降至 45ms，低于 SLA 目标 100ms",
+               ThoughtType.OUTCOME, 1.0)
+
+    # 触发反思
+    ref = hmr2.reflect_on(
+        active_chain_id,
+        "p99 从 1200ms 降至 45ms，恢复正常",
+        rating=0.95
+    )
+    print(f"反思准确率: {ref.accuracy:.0%}")
+    print(f"洞察: {ref.insights}")
+
+# 记录经验
+hmr2.ingest(
+    "根因：消费者线程同步 IO 阻塞导致 IPC 队列积压。"
+    "修复：异步 IO + 消费者 x3 扩容。效果：p99 从 1200ms 降至 45ms。",
+    memory_type="reflection",
+    title="IPC 延迟根因与修复总结",
+    metadata={"tags": ["ipc", "延迟", "最佳实践"], "confidence": 0.95}
 )
 
-# 更新进度
-hmr.save_runtime_state(
-    goal="设计异步调度器",
-    plan=["研究 IPC 协议 ✓", "研究调度算法 ✓", "设计 API ✓", "实现", "压测"],
-    context={"current_phase": "实现", "confidence": 0.85}
-)
+# 完成后演化
+report = hmr2.evolve()
+print(report["summary"])
+
+# 下次遇到类似问题
+best = hmr2.best_decision_for("IPC 队列积压延迟")
+print(f"历史最优决策: {best[:60]}")
 ```
 
-### 场景：多代理协作
+### 场景二：多代理协作
 
 ```python
 hmr = HMR(storage_path="./team_project")
 
-# 代理 A：后端
+# ── 后端代理 ─────────────────────────────────────────────────
 backend = hmr.get_workspace("agent_backend")
 backend.active_goal = "实现调度器核心逻辑"
 backend.push_task({"name": "实现优先级堆", "status": "in_progress"})
 
+# 后端推理链
+be_chain = hmr.start_thinking("设计任务优先级算法", agent_id="agent_backend")
+hmr.think(be_chain.chain_id, "需要支持 1-10 优先级，高优先级先执行",
+          ThoughtType.OBSERVATION)
+hmr.think(be_chain.chain_id, "最小堆可高效实现优先级队列",
+          ThoughtType.DECISION, 0.9)
+
+# 存储 API 决策（让前端代理能查到）
 hmr.ingest(
-    "调度器 API：scheduler.submit(task, priority=1-10)，"
-    "scheduler.cancel(task_id)，scheduler.get_status(task_id)",
-    memory_type="decision",
-    title="调度器 API 设计",
-    metadata={"tags": ["api", "scheduler"]}
+    "调度器 API：submit(task, priority=1-10)，cancel(task_id)，status(task_id)",
+    memory_type="decision", title="调度器 API 设计",
+    metadata={"tags": ["api", "scheduler"], "runtime_dependencies": ["调度器核心"]}
 )
 hmr.save_workspace("agent_backend")
 
-# 代理 B：前端
+# ── 前端代理 ─────────────────────────────────────────────────
 frontend = hmr.get_workspace("agent_frontend")
-frontend.active_goal = "实现调度器管理 UI"
-frontend.push_task({"name": "设计任务列表页面", "status": "todo"})
+frontend.active_goal = "构建调度器管理 UI"
 
-# 前端从记忆中获取后端 API 设计
-result = hmr.recall(
-    query="调度器 API 接口",
-    strategy="semantic"
-)
-api_doc = result.memory_objects[0] if result.memory_objects else None
-print(f"前端获取到 API 文档: {api_doc.title if api_doc else '未找到'}")
+# 前端查取后端 API 设计
+api_result = hmr.recall(query="调度器 API 接口定义", strategy="semantic")
+if api_result.memory_objects:
+    api_doc = api_result.memory_objects[0]
+    hmr.feedback("recall_hit", [api_doc.id], 0.9)
+    print(f"前端获取到 API: {api_doc.content[:80]}")
 
 hmr.save_workspace("agent_frontend")
 
-# 重启后两个代理的工作区都完整恢复
+# ── 重启后状态完整恢复 ───────────────────────────────────────
 hmr2 = HMR(storage_path="./team_project")
-ws_b = hmr2.get_workspace("agent_backend", create=False)
-ws_f = hmr2.get_workspace("agent_frontend", create=False)
-print(f"后端代理目标: {ws_b.active_goal}")
-print(f"前端代理目标: {ws_f.active_goal}")
+ws_be = hmr2.get_workspace("agent_backend", create=False)
+ws_fe = hmr2.get_workspace("agent_frontend", create=False)
+print(f"后端: {ws_be.active_goal}")
+print(f"前端: {ws_fe.active_goal}")
+```
+
+### 场景三：持续学习系统
+
+```python
+hmr = HMR(storage_path="./learning_system")
+
+# 模拟 30 天的执行记录积累
+for day in range(30):
+    # 每天摄入若干条记录
+    for run in range(3):
+        hmr.ingest(
+            f"Day{day+1} Run{run+1}: 调度器 p99={50+day%20}ms，"
+            f"IPC 队列峰值 {run*100} 条，并发 {200+day*10} RPS",
+            use_policy=True,   # Policy 自动分类
+            title=f"日常运行记录 Day{day+1}-{run+1}"
+        )
+
+    # 每 10 天提供一次任务反馈
+    if (day+1) % 10 == 0:
+        status = hmr.get_system_status()
+        memories = hmr.memory_fs.list_memories(memory_type="execution")
+        hmr.feedback(
+            "task_success",
+            memory_ids=[m.id for m in memories[-5:]],
+            signal=0.85
+        )
+        print(f"Day {day+1}: {status['memory_fs']['total_memories']} 条记忆")
+
+# 30 天后：查看 Policy 学习成果
+print(hmr.policy.get_stats())
+print(hmr.policy.get_policy_weights_summary())
+
+# 自我演化：压缩冗余，提炼规律
+report = hmr.evolve()
+print(report["summary"])
+# → "演化完成：抽象 3 个簇，解决 0 对矛盾，健康度: ✅ 健康"
+
+# 提炼的规律可直接参考
+result = hmr.recall(query="调度器性能规律", top_k=3)
+for mem in result.memory_objects:
+    print(f"[{mem.type}] {mem.title}")
 ```
 
 ---
 
-## 配置参考
+## 10. 配置参考
 
-### LifecycleConfig 完整配置
+### LifecycleConfig 完整选项
 
 ```python
 from hmr.engines.lifecycle import LifecycleConfig
 
-config = LifecycleConfig(
-    # 自动压缩触发条件
-    max_memories_per_type=80,       # 同类型记忆超过此数触发压缩（默认 80）
-    consolidation_batch=20,         # 每次最多压缩多少条（默认 20）
-    consolidation_keep_ratio=0.3,   # 压缩后原记忆权重降为原来的 30%（默认 0.3）
-
-    # 自动删除条件（以下条件同时满足才删除）
-    prune_retrievability=0.05,      # SM-2 可提取性阈值（默认 0.05 = 5%）
-    prune_min_age_days=7,           # 最少存在天数（默认 7 天）
-    prune_require_zero_access=True, # 是否要求从未被访问（默认 True）
-
-    # 运行控制
-    auto_enabled=True,              # 是否开启自动生命周期（默认 True）
-    check_interval_ingests=10,      # 每 N 次 ingest 检查一次（默认 10）
+LifecycleConfig(
+    max_memories_per_type   = 80,    # 同类型超过此数触发自动压缩
+    consolidation_batch     = 20,    # 每次最多压缩几条
+    consolidation_keep_ratio= 0.3,   # 原记忆权重降为 30%（不删除）
+    prune_retrievability    = 0.05,  # SM-2 可提取性低于 5% 考虑删除
+    prune_min_age_days      = 7,     # 至少存在 7 天才允许删除
+    prune_require_zero_access = True,# 只删从未访问过的记忆
+    auto_enabled            = True,  # 开启自动生命周期管理
+    check_interval_ingests  = 10,    # 每 10 次 ingest 检查一次
 )
 ```
 
 ### 环境变量
 
 ```bash
-OPENAI_API_KEY=sk-...         # OpenAI API Key（用于 Embedding 和 LLM 摘要）
+OPENAI_API_KEY=sk-...    # OpenAI API Key
 ```
 
-### 目录结构
+### 数据目录结构
 
 ```
 hmr_data/
-├── memories/
-│   ├── concepts/           # concept 类型记忆
-│   ├── executions/         # execution 类型记忆
-│   ├── decisions/          # decision 类型记忆
+├── memories/            按类型存放的记忆文件
+│   ├── concepts/
+│   ├── executions/
+│   ├── decisions/
 │   └── ...
-├── runtimes/               # RuntimeState 文件
-├── workspaces/             # AgentWorkspace 文件
-├── vector_store/
-│   ├── vectors.json        # 向量数据（持久化）
+├── runtimes/            RuntimeState 文件
+├── workspaces/          AgentWorkspace 文件
+├── vector_store/        向量索引（持久化）
+│   ├── vectors.json
 │   └── vector_metadata.json
-├── memory_graph/
-│   └── memory_graph.json   # 图数据（持久化）
-├── index/
-│   ├── memory_index.json
-│   └── runtime_index.json
-└── schema_version.json
+├── memory_graph/        实体图数据
+│   └── memory_graph.json
+├── thought_chains/      思维链文件（v2.0）
+│   └── tc_*.json
+├── policy/              Policy 权重（v2.0）
+│   └── policy.json
+├── evolution/           演化日志（v2.0）
+│   └── evolution_logs.json
+└── index/               索引文件
 ```
 
 ---
 
-## 故障排除
-
-### 问题：启动时显示"重建向量索引"
-
-```
-[HMR] 检测到向量为空，从 MemoryFS 重建（N 条）...
-```
-
-**正常现象**，首次启动或 `vector_store/` 目录被删除时触发。
-重建完成后不再出现，等待即可。
-
-### 问题：召回结果不相关
-
-可能原因和解决方案：
+## 11. 系统状态监控
 
 ```python
-# 1. 检查 Embedding 提供者
 status = hmr.get_system_status()
-print(status["embedding_provider"])
-# 如果是 "tfidf"，建议安装更好的 Embedding
 
-# 2. 手动指定 JIT 策略
-result = hmr.recall(query="...", strategy="jit")
+# 基础指标
+print(status["version"])            # "2.0.0"
+print(status["memory_fs"]["total_memories"])
+print(status["vector_store"]["total_vectors"])
+print(status["synced"])             # True = 向量与记忆数量同步
 
-# 3. 检查向量和记忆是否同步
-print(status["synced"])  # 应为 True
+# v1.5 组件
+print(status["memory_graph"]["total_nodes"])
+print(status["memory_graph"]["total_edges"])
+print(status["scheduler"]["dominant_strategy"])
+print(status["scheduler"]["cache_hit_rate"])
+print(status["lifecycle"]["by_state"])   # fresh/active/fading/dormant 分布
 
-# 4. 重建向量索引（当 synced=False 时）
+# v2.0 组件
+print(status["thought_chain"]["total_chains"])
+print(status["thought_chain"]["avg_reflection_accuracy"])
+print(status["thought_chain"]["active_chains"])
+
+print(status["policy"]["total_feedback"])
+print(status["policy"]["positive_ratio"])
+print(status["policy"]["recall_hit_rate"])
+
+print(status["evolution"]["total_operations"])
+print(status["evolution"]["by_operation"])  # {"abstract": N, "resolve": M}
+
+# 其他
+print(status["overdue_reviews"])    # 逾期需要复习的记忆数
+print(status["active_workspaces"]) # 活跃代理数
+print(status["embedding_provider"]) # openai/sentence_transformers/tfidf
+```
+
+---
+
+## 12. 故障排除
+
+### 启动时显示"重建向量索引"
+
+```
+[HMR] 重建向量索引（N 条）...
+```
+
+**正常现象**，首次启动或 `vector_store/` 被删除时触发，自动完成后不再出现。
+
+---
+
+### Policy 分类结果不符预期
+
+```python
+# 1. 查看分类决策详情
+d = hmr.policy.decide_ingest(content, title=title)
+print(d)   # {"should_store": True, "memory_type": "...", "reasoning": "..."}
+
+# 2. 通过反馈纠正
+m = hmr.ingest(content, memory_type="execution")  # 手动指定正确类型
+hmr.feedback("task_success", [m.id], signal=0.9,
+             context={"memory_type": "execution", "content": content})
+# Policy 权重会在下次相似内容时得到纠正
+
+# 3. 关键词不匹配时
+# 确保内容包含 Policy 能识别的特征词：
+# execution: 失败/错误/超时/崩溃/积压/fault/error/crash/timeout
+# decision:  决定/采用/选择/determined/selected
+# reflection:因为/原因/根因/because/cause/reason
+# concept:   建议/推荐/模式/recommend/pattern/principle
+```
+
+---
+
+### 召回结果不相关
+
+```python
+# 检查数据同步状态
+status = hmr.get_system_status()
+print(status["synced"])           # 应为 True
+print(status["embedding_provider"])  # 查看当前 Embedding 方案
+
+# 强制重建向量索引
 hmr.vector_store.rebuild_from_memories(hmr.memory_fs.list_memories())
-```
 
-### 问题：compress_memories 返回 None
-
-```python
-# 原因：满足压缩条件的记忆不足 2 条
-# 检查有多少条低权重记忆
-memories = hmr.memory_fs.list_memories(memory_type="execution")
-low_weight = [m for m in memories if m.temporal_weight < 0.5]
-print(f"可压缩记忆: {len(low_weight)} 条")
-
-# 如需强制压缩，降低阈值（手动修改后再写回）
-for m in memories[:5]:
-    m.temporal_weight = 0.3
-    hmr.memory_fs.write_memory(m)
-result = hmr.compress_memories(memory_type="execution")
-```
-
-### 问题：Memory Graph 节点数为 0
-
-```python
-# 规则提取器依赖技术名词格式
-# 确保记忆内容包含大写英文词或中文技术术语
-
-# 好的记忆内容（会提取到实体）
-hmr.ingest("Scheduler 调度器在高并发下出现 IPC 积压", ...)
-
-# 不好的内容（难以提取实体）
-hmr.ingest("有问题了，查了一下，发现有点慢", ...)
-```
-
-### 问题：工作区重启后消失
-
-```python
-# 确保调用了 save_workspace
-ws = hmr.get_workspace("my_agent")
-ws.active_goal = "..."
-hmr.save_workspace("my_agent")  # ← 必须调用，或等待 ingest 触发自动保存
+# 对复杂查询强制使用 JIT
+result = hmr.recall(query="...", strategy="jit")
 ```
 
 ---
 
-## 版本历史
+### evolve() 返回空操作
 
-| 版本 | 主要变化 |
-|------|---------|
-| **v1.5.0** | 新增 JIT Compiler、Memory Scheduler、Lifecycle Engine、Memory Graph |
-| **v1.1.0** | 修复 VectorStore 持久化、真实 Embedding、SM-2 算法、Workspace 持久化 |
-| **v1.0.0** | 初始版本，基础记忆存储和召回 |
+```python
+# 原因：未达到触发条件（簇大小 < 3，或无矛盾）
+# 检查记忆分布
+stats = hmr.memory_fs.get_statistics()
+print(stats["memory_types"])   # 各类型记忆数量
+
+# 降低触发阈值（调试用）
+report = hmr.evolution.evolve(
+    memories=hmr.memory_fs.list_memories(),
+    vector_store=hmr.vector_store,
+    memory_fs=hmr.memory_fs,
+)
+```
 
 ---
 
-*HMR v1.5 — 让 AI 系统真正记住，而不只是查询。*
+### 思维链反思后洞察未自动存储
+
+```python
+# 检查 ingest_fn 是否已注册
+print(hmr.thought_chain._ingest_fn is not None)  # 应为 True
+
+# 手动存储洞察
+ref = hmr.reflect_on(chain_id, actual_outcome)
+if ref.suggested_memory:
+    hmr.ingest(ref.suggested_memory, memory_type="reflection",
+               title=f"[链洞察] {goal[:30]}")
+```
+
+---
+
+*HMR v2.0 — 让 AI 不只记住答案，而是记住如何思考。*

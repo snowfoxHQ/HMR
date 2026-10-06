@@ -1,360 +1,194 @@
-# HMR v1.5 User Manual
+# HMR v2.0 User Manual (English)
 
-**Hestia Memory Runtime — A Persistent Cognitive Runtime for Long-Running AI Systems**
+**Hestia Memory Runtime — Persistent Cognitive Runtime**
 
-Version: v1.5.0 | Language: English
+Version: v2.0.0
 
 ---
 
 ## Table of Contents
 
-1. [Quick Start](#quick-start)
-2. [Installation](#installation)
-3. [Core Concepts](#core-concepts)
-4. [Core API](#core-api)
-   - [Initialization](#initialization)
-   - [Ingesting Memory](#ingesting-memory)
-   - [Recalling Memory](#recalling-memory)
-   - [Runtime State](#runtime-state)
-   - [Agent Workspaces](#agent-workspaces)
-   - [Memory Compression](#memory-compression)
-   - [System Status](#system-status)
-5. [Advanced Components](#advanced-components)
-   - [Memory Scheduler](#memory-scheduler)
-   - [JIT Memory Compiler](#jit-memory-compiler)
-   - [Memory Lifecycle Engine](#memory-lifecycle-engine)
-   - [Memory Graph Layer](#memory-graph-layer)
-6. [Complete Workflow Examples](#complete-workflow-examples)
-7. [Configuration Reference](#configuration-reference)
-8. [Troubleshooting](#troubleshooting)
-9. [Changelog](#changelog)
+1. [Quick Start](#1-quick-start)
+2. [Installation](#2-installation)
+3. [Core Concepts](#3-core-concepts)
+4. [Core API](#4-core-api)
+   - [Initialisation](#41-initialisation)
+   - [Ingesting Memory](#42-ingesting-memory)
+   - [Recalling Memory](#43-recalling-memory)
+   - [Runtime State](#44-runtime-state)
+   - [Agent Workspaces](#45-agent-workspaces)
+   - [Memory Compression](#46-memory-compression)
+5. [v2.0 New: ThoughtChain Engine](#5-v20-new-thoughtchain-engine)
+6. [v2.0 New: Memory Policy Engine](#6-v20-new-memory-policy-engine)
+7. [v2.0 New: Self-Evolution Engine](#7-v20-new-self-evolution-engine)
+8. [v1.5 Advanced Components Recap](#8-v15-advanced-components-recap)
+9. [Complete Workflow Examples](#9-complete-workflow-examples)
+10. [Configuration Reference](#10-configuration-reference)
+11. [System Status Monitoring](#11-system-status-monitoring)
+12. [Troubleshooting](#12-troubleshooting)
 
 ---
 
-## Quick Start
+## 1. Quick Start
 
 ```python
 from hmr.core.hmr import HMR
+from hmr.engines.thought_chain import ThoughtType
 
-# 1. Initialize
+# Initialise
 hmr = HMR(storage_path="./my_project")
 
-# 2. Store a memory
-hmr.ingest(
-    "IPC should use async message queues to avoid blocking",
-    memory_type="concept",
-    title="IPC Design Principle"
-)
+# ── Store memory (Policy auto-detects type) ──────────────────
+hmr.ingest("IPC queue backup caused timeouts — consumer threads insufficient",
+           use_policy=True)
+# → automatically classified as 'execution', confidence 0.85
 
-# 3. Save your current working state
-hmr.save_runtime_state(
-    goal="Design the Scheduler",
-    plan=["Research IPC", "Design API", "Implement"]
-)
+# ── Reasoning chain: record the full thought process ─────────
+chain = hmr.start_thinking("Diagnose IPC timeout root cause")
+hmr.think(chain.chain_id, "Queue depth sustained >800",      ThoughtType.OBSERVATION)
+hmr.think(chain.chain_id, "Consumer threads may be too few", ThoughtType.HYPOTHESIS)
+hmr.think(chain.chain_id, "Scale consumer threads to x3",    ThoughtType.DECISION)
+hmr.think(chain.chain_id, "Deployment complete",              ThoughtType.ACTION)
 
-# 4. Days later — restart and restore
-state = hmr.restore_runtime_state()
-print(state.active_goal)   # "Design the Scheduler"
+# ── Reflect: evaluate reasoning quality; insights auto-stored ─
+ref = hmr.reflect_on(chain.chain_id, "Latency dropped 800ms → 50ms", rating=0.9)
+print(ref.accuracy)    # 0.75
+print(ref.insights)    # ['Effective decision path: ...', 'Goal achieved (90%)']
 
-# 5. Smart recall of relevant memories
-result = hmr.recall(query="Scheduler IPC design")
-for mem in result.memory_objects:
-    print(f"[{mem.type}] {mem.title}")
+# ── Next time: fetch the best historical decision ────────────
+best = hmr.best_decision_for("IPC queue backup")
+# → "[Historical ref, accuracy=90%] Scale consumer threads x3 + raise priority"
+
+# ── Recall: intelligent multi-strategy retrieval ─────────────
+result = hmr.recall(query="why does IPC time out", top_k=5)
+print(result.recall_reasoning)   # "[HYBRID] JIT compiled 2 steps..."
+
+# ── Save cognitive state ──────────────────────────────────────
+hmr.save_runtime_state(goal="Optimise IPC performance",
+                        plan=["Analyse ✓", "Scale ✓", "Validate"])
+
+# ── After restart: full restoration ──────────────────────────
+hmr2 = HMR(storage_path="./my_project")
+state = hmr2.restore_runtime_state()
+# → goal="Optimise IPC performance"
+# → vector index, SM-2 state, Policy weights — all restored
+
+# ── Self-evolve ───────────────────────────────────────────────
+report = hmr.evolve()
+print(report["summary"])   # "Evolution done: abstracted 1 cluster, resolved 0 contradictions"
 ```
 
 ---
 
-## Installation
+## 2. Installation
 
-> **Important note for Windows users**
-> Do NOT place the project under `Documents`, `Desktop`, or `Pictures` —
-> these are synced by OneDrive, which locks files during installation and
-> causes `pip install -e .` to fail with
-> `could not create 'hmr.egg-info': The system cannot find the file specified`.
-> Use a non-synced path such as `C:\hmr` or `C:\projects\hmr`.
-
-### Step 1: Install dependencies (always works)
+### Minimal (built-in TF-IDF, always works)
 
 ```bash
 pip install pydantic numpy
 ```
 
-> These two packages are all you need — HMR runs fully with the built-in
-> TF-IDF Embedding.
-
-### Step 2: Install HMR
-
-From the extracted directory containing `pyproject.toml`:
+### Recommended (better semantic understanding)
 
 ```bash
-# Windows (PowerShell)
-cd C:\hmr
-pip install -e .
-
-# Linux / macOS
-cd /path/to/hmr
-pip install -e .
-```
-
-Or use it **without installing** — add two lines at the top of your script:
-
-```python
-import sys
-sys.path.insert(0, r"C:\hmr")   # change to your actual path
-from hmr.core.hmr import HMR
-```
-
-### (Optional) Better semantic search
-
-HMR works without either of these (it falls back to built-in TF-IDF).
-Installing one improves quality:
-
-```bash
-# Option A: Local model (recommended — free, no API key, offline)
-pip install sentence-transformers
-
-# Option B: OpenAI Embeddings (best quality, requires API key)
+# Option A: OpenAI Embeddings (best quality)
 pip install openai
-```
-
-#### Choosing a local model (Chinese / multilingual support)
-
-Option A's local model defaults to `all-MiniLM-L6-v2` (~80MB, lightweight, good
-for English but **weak on Chinese**). You can switch to a model better suited to
-your language via the `HMR_ST_MODEL` environment variable — **no code change needed**.
-
-| Model | Size | Best for |
-|-------|------|----------|
-| `all-MiniLM-L6-v2` (default) | ~80MB | English, lightweight |
-| `BAAI/bge-small-zh-v1.5` | ~100MB | Chinese, lightweight |
-| `BAAI/bge-base-zh-v1.5` | ~400MB | Chinese, higher quality |
-| `BAAI/bge-m3` | ~2.2GB | **Strong in both Chinese & English**, best for mixed text |
-| `paraphrase-multilingual-MiniLM-L12-v2` | ~120MB | 50+ languages, lightweight |
-
-How to set (bge-m3 example):
-
-```bash
-# Windows (PowerShell) — temporary
-$env:HMR_ST_MODEL="BAAI/bge-m3"
-
-# Windows (PowerShell) — persistent
-[System.Environment]::SetEnvironmentVariable("HMR_ST_MODEL", "BAAI/bge-m3", "User")
-
-# Linux / macOS
-export HMR_ST_MODEL="BAAI/bge-m3"
-```
-
-After setting, HMR logs the actual model loaded:
-`[HMR Embedding] 使用 sentence-transformers (BAAI/bge-m3)`
-
-> **Important:** After changing models, the old vector index is incompatible with
-> the new model and must be rebuilt once. If using the HTTP service, call
-> `POST /reindex` to rebuild automatically; if using the library directly, call
-> `hmr.vector_store.rebuild_from_memories(hmr.memory_fs.list_memories())`.
-> Skipping the rebuild will make semantic search inaccurate.
-
-#### Option C: Ollama local models (recommended, great for Chinese)
-
-If you already run models locally via [Ollama](https://ollama.com), HMR can call
-it directly — **no model download by HMR needed**. Ideal for managing strong
-Chinese models like bge-m3 through Ollama.
-
-```bash
-# 1. Pull the model with Ollama (once)
-ollama pull bge-m3
-
-# 2. Tell HMR to use Ollama
-# Windows (PowerShell)
-$env:HMR_OLLAMA_MODEL="bge-m3"
-
-# Linux / macOS
-export HMR_OLLAMA_MODEL="bge-m3"
-```
-
-Optional — if Ollama isn't at the default address, set `HMR_OLLAMA_HOST`:
-```bash
-$env:HMR_OLLAMA_HOST="http://localhost:11434"   # default, usually unnecessary
-```
-
-After setting, HMR logs:
-`[HMR Embedding] 使用 Ollama (bge-m3, dim=1024)`
-
-> Switching to Ollama also invalidates the old index — call `POST /reindex` once.
-
----
-
-#### Embedding provider overview (HMR auto-selects by priority)
-
-| Priority | Provider | Enabled when | Best for |
-|----------|----------|--------------|----------|
-| 1 | **OpenAI** (online) | `OPENAI_API_KEY` set | Best quality, needs internet + key |
-| 2 | **Ollama** (local) | `HMR_OLLAMA_MODEL` set | Local, strong Chinese (bge-m3), offline |
-| 3 | **sentence-transformers** (local) | package installed | Local, configurable via `HMR_ST_MODEL` |
-| 4 | **TF-IDF** (fallback) | always available | No deps, dev/testing |
-
-Mix freely: set OpenAI for online; use Ollama's bge-m3 for local Chinese;
-set nothing to fall back to TF-IDF.
-
-#### Filter recall by language (mixed-language scenarios)
-
-Bilingual models (like bge-m3) map semantically similar Chinese and English
-content to nearby vectors, so searching in Chinese may surface English results.
-HMR can filter recall by language via the `HMR_LANG_FILTER` environment variable:
-
-| Value | Behavior | Best for |
-|-------|----------|----------|
-| `off` (default) | No filtering, returns both | Mixed text, cross-language search |
-| `auto` | Detects **query** language, returns same-language only | Chinese query → Chinese only |
-| `zh` | Force Chinese results only | Fixed Chinese scenarios |
-| `en` | Force English results only | Fixed English scenarios |
-
-```bash
-# Windows (PowerShell)
-$env:HMR_LANG_FILTER="auto"
-
-# Linux / macOS
-export HMR_LANG_FILTER="auto"
-```
-
-> Default is `off`, preserving existing behavior. Language is auto-detected by
-> Chinese-character ratio — no manual tagging needed. If filtering yields no
-> results, it falls back to unfiltered (so you never get zero hits).
->
-> **Recommendation:** Agent-conversation memories are naturally mixed-language
-> (Chinese prose + English technical terms/code), where strict language filtering
-> can backfire — **keep the default `off`**. This feature is better suited to
-> **structured knowledge bases** with clear per-item language, where enabling
-> `auto` or `zh`/`en` actually pays off.
-
-If using Option B, set the `OPENAI_API_KEY` environment variable.
-**Commands are listed per platform below — find your own system and use the
-matching command. The commands are completely different across systems; using
-the wrong one will fail.**
-
-#### Windows — PowerShell
-
-```powershell
-# Temporary (current PowerShell window only; lost when closed)
-$env:OPENAI_API_KEY="sk-..."
-
-# Persistent (writes to user environment; reopen PowerShell to take effect)
-[System.Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "sk-...", "User")
-
-# Verify it is set
-echo $env:OPENAI_API_KEY
-```
-
-#### Windows — CMD (Command Prompt)
-
-```cmd
-:: Temporary (current CMD window only)
-set OPENAI_API_KEY=sk-...
-
-:: Persistent (writes to user environment; reopen CMD to take effect)
-setx OPENAI_API_KEY "sk-..."
-
-:: Verify it is set
-echo %OPENAI_API_KEY%
-```
-
-#### Linux / macOS — Terminal
-
-```bash
-# Temporary (current terminal session only; lost when closed)
 export OPENAI_API_KEY="sk-..."
 
-# Persistent (writes to shell config; applies to all new terminals)
-# bash users:
-echo 'export OPENAI_API_KEY="sk-..."' >> ~/.bashrc && source ~/.bashrc
-# zsh users (macOS default):
-echo 'export OPENAI_API_KEY="sk-..."' >> ~/.zshrc && source ~/.zshrc
-
-# Verify it is set
-echo $OPENAI_API_KEY
+# Option B: Local model (no API key required)
+pip install sentence-transformers
 ```
 
-> **Note:** Once set, HMR reads it automatically at startup — no need to put the
-> key in your code. HMR auto-selects in the order
-> OpenAI → sentence-transformers → TF-IDF, using whichever is installed and set.
->
-> If you prefer not to set an environment variable, pass it in code instead:
-> `HMR(storage_path="./data", llm_api_key="sk-...")`
+HMR detects and selects the best Embedding provider automatically:
 
-### Step 3: Verify installation
+```
+Priority: OpenAI > sentence-transformers > TF-IDF n-gram
+```
 
-Save the following as `verify.py` (**do NOT paste it into the terminal /
-PowerShell — this is Python code and must be run with `python`**):
+### Verify
 
 ```python
 from hmr.core.hmr import HMR
-
-hmr = HMR(storage_path="./test_data")
-print("Version:", hmr.VERSION)   # should print 1.5.0
-
-status = hmr.get_system_status()
-print("Embedding:", status["embedding_provider"])  # openai / sentence_transformers / tfidf
-print("Synced:", status["synced"])                  # True
+hmr = HMR()
+s = hmr.get_system_status()
+print(s["version"])             # 2.0.0
+print(s["embedding_provider"]) # openai / sentence_transformers / tfidf
 ```
-
-Then run:
-
-```bash
-python verify.py
-```
-
-Seeing `Version: 1.5.0` and `Synced: True` means installation succeeded.
 
 ---
 
-## Core Concepts
+## 3. Core Concepts
 
 ### Design Philosophy
 
 ```
-Traditional AI memory:  Memory = Storage   (you ask, it searches)
-HMR:                   Memory = Persistent Cognitive Runtime
-                        (the system predicts what you need and pre-loads it)
+Traditional AI:  Memory = Storage
+HMR v2.0:        Memory = Persistent Cognitive Runtime
+                  ├── Stores *how* it thought, not just *what* happened
+                  ├── Retrieves, predicts, reasons, and reflects
+                  ├── Accumulates and then self-evolves
+                  └── Continuous across sessions — restart = pause, not loss
 ```
 
-### Five Key Components
+### Three New Concepts in v2.0
 
-| Component | Responsibility | Analogy |
-|-----------|---------------|---------|
-| **MemoryObject** | Basic unit of memory — typed, summarised, time-weighted | A single memory in the brain |
-| **RuntimeState** | Current cognitive state: goal, plan, context | Your mental state while working |
-| **Memory Scheduler** | Decides which recall strategy to use | OS process scheduler |
-| **JIT Compiler** | Multi-step reasoning retrieval, gap analysis, query rewriting | Compiler multi-pass optimisation |
-| **Memory Graph** | Entity / causal / temporal structured network | Knowledge graph |
+**ThoughtChain**
+- Explicit record of a reasoning process: Observation → Hypothesis → Decision → Action → Reflection
+- After execution triggers reflection: marks which judgements were wrong
+- Insights auto-stored as long-term memory; successful chains guide future decisions
+
+**Memory Policy**
+- Three sub-policies: IngestPolicy (what to store) / RecallPolicy (how to retrieve) / ForgetPolicy (how to forget)
+- Every `feedback()` call nudges policy weights via SGD
+- Works for both Chinese and English via character-level keyword matching — no tokeniser needed
+
+**Self-Evolution**
+- PatternDetector: finds clusters of memories with >75% similarity
+- KnowledgeAbstractor: distils clusters into higher-order concepts
+- ContradictionResolver: finds semantically opposite memory pairs, keeps the higher-confidence one
+- StrategyOptimizer: analyses usage patterns, recommends optimal config parameters
 
 ### Memory Types
 
 | Type | Purpose | Example |
 |------|---------|---------|
-| `concept` | Abstract knowledge, design principles | "Async is better than sync" |
-| `project` | Project context | "HMR v2 project goals" |
-| `decision` | Decision + rationale | "Chose Chroma over Pinecone" |
-| `execution` | Execution traces, failure records | "Deadlock occurred during load test" |
+| `concept` | Abstract knowledge, design principles, recommendations | "Recommend async message queue" |
+| `decision` | Decisions made + rationale | "Decided to use asyncio approach" |
+| `execution` | Execution traces, failure records | "IPC backup caused timeouts" |
+| `reflection` | Post-mortems, root-cause summaries | "Deadlock caused task blockage" |
+| `project` | Project context | "HMR v2 goals" |
 | `task` | Task definitions | "Implement priority queue" |
-| `reflection` | Post-mortems and learnings | "Root cause of deadlock" |
 | `agent_memory` | Agent-private memories | "agent_frontend UI decisions" |
 | `workflow` | Process definitions | "Release process SOP" |
 
+### ThoughtType Values
+
+| Value | Meaning | Example |
+|-------|---------|---------|
+| `OBSERVATION` | Observed fact | "Queue depth sustained >800" |
+| `HYPOTHESIS` | Proposed hypothesis | "Consumer threads may be too few" |
+| `DECISION` | Decision made | "Scale consumer threads to x3" |
+| `ACTION` | Action executed | "Deployment complete" |
+| `OUTCOME` | Result of the action | "Latency dropped to 50ms" |
+| `REFLECTION` | After-the-fact review | "Scaling was effective — use as first response" |
+| `INSIGHT` | Distilled general knowledge | "Consumer count should scale linearly with concurrency" |
+
 ---
 
-## Core API
+## 4. Core API
 
-### Initialization
+### 4.1 Initialisation
 
 ```python
 from hmr.core.hmr import HMR
 from hmr.engines.lifecycle import LifecycleConfig
 
 hmr = HMR(
-    storage_path="./hmr_data",               # Data directory (default: ./hmr_data)
-    embedding_model="text-embedding-3-small", # OpenAI embedding model
-    llm_api_key="sk-...",                    # Optional; or set OPENAI_API_KEY env var
-    lifecycle_config=LifecycleConfig(         # Optional custom lifecycle config
-        max_memories_per_type=100,
+    storage_path="./hmr_data",                 # Root data directory
+    embedding_model="text-embedding-3-small",   # OpenAI model name
+    llm_api_key="sk-...",                       # Or set OPENAI_API_KEY env var
+    lifecycle_config=LifecycleConfig(            # Optional lifecycle tuning
+        max_memories_per_type=80,
         check_interval_ingests=10,
     )
 )
@@ -365,586 +199,781 @@ hmr = HMR(
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `storage_path` | `"./hmr_data"` | Root directory for all persistent data |
-| `embedding_model` | `"text-embedding-3-small"` | OpenAI embedding model name |
-| `llm_api_key` | `None` | OpenAI API key (optional) |
-| `lifecycle_config` | Default config | Lifecycle engine settings |
+| `embedding_model` | `"text-embedding-3-small"` | OpenAI embedding model |
+| `llm_api_key` | `None` | Also accepts `OPENAI_API_KEY` env var |
+| `lifecycle_config` | Defaults | See [Configuration Reference](#10-configuration-reference) |
 
 ---
 
-### Ingesting Memory
-
-Store new knowledge, events, or decisions into HMR.
+### 4.2 Ingesting Memory
 
 ```python
 memory = hmr.ingest(
-    content="Under high concurrency the IPC queue backed up; "
-            "tasks waited >500 ms, causing downstream timeouts.",
-    memory_type="execution",
-    title="Load Test Failure #1",
+    content="IPC queue backed up >1000 entries at concurrency >500; responses timed out",
+    memory_type="execution",       # explicit type, or omit and let Policy decide
+    title="IPC Backup Incident",
     metadata={
-        "tags": ["ipc", "load-test", "timeout"],
+        "tags": ["ipc", "incident", "timeout"],
         "runtime_dependencies": ["IPC Design Principle", "Scheduler"],
         "confidence": 0.9
-    }
+    },
+    use_policy=False               # True = Policy auto-infers type and confidence
 )
-
-print(memory.id)                # mem_a1b2c3d4
-print(memory.semantic_summary)  # auto-generated summary
 ```
 
-**Parameters:**
+**use_policy=True — auto-classification examples:**
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `content` | str | ✅ | Memory content (long text supported) |
-| `memory_type` | str | No | Memory type, default `"concept"` |
-| `title` | str | No | Title; auto-generated if omitted |
-| `metadata` | dict | No | Contains `tags`, `runtime_dependencies`, `confidence` |
+```python
+m1 = hmr.ingest("IPC backup caused timeouts — consumer threads insufficient",
+                 use_policy=True)
+print(m1.type)    # execution
+
+m2 = hmr.ingest("Recommend async message queues for high-concurrency IPC",
+                 use_policy=True)
+print(m2.type)    # concept
+
+m3 = hmr.ingest("Decided to use asyncio + priority heap approach",
+                 use_policy=True)
+print(m3.type)    # decision
+
+m4 = hmr.ingest("Deadlock caused task blockage; root cause: circular wait",
+                 use_policy=True)
+print(m4.type)    # reflection
+```
 
 **What `ingest` triggers automatically:**
 - Vector embedding generation
 - SM-2 temporal state initialisation
 - Memory Graph entity extraction
-- Lifecycle check (every N ingests)
+- Lifecycle check (async background)
 - Cognitive graph (CWG) update
 
 ---
 
-### Recalling Memory
-
-Intelligently recall relevant memories. The Memory Scheduler automatically
-selects the best strategy.
+### 4.3 Recalling Memory
 
 ```python
 result = hmr.recall(
-    query="Why does IPC latency cause Scheduler timeouts?",
-    context={"active_goal": "Optimise Scheduler"},  # optional but improves results
+    query="why does IPC latency cause Scheduler timeouts?",
+    context={"active_goal": "Diagnose timeout", "pending_tasks": [...]},
     top_k=5,
-    strategy="jit"   # optional — force a specific strategy
+    strategy="jit",     # force a strategy (optional — auto-selected by default)
+    use_policy=True     # Policy assists scheduling (default: True)
 )
 
-print(result.recall_reasoning)
-# "[JIT] JIT compiled 2 steps, query trace: ..."
-
+print(result.recall_reasoning)    # "[JIT] JIT compiled 2 steps, ..."
 for mem in result.memory_objects:
     score = result.relevance_scores[mem.id]
-    print(f"  [{score:.2f}] {mem.title}")
+    print(f"[{score:.2f}] [{mem.type}] {mem.title}")
 ```
-
-**Parameters:**
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `query` | str | None | Query string |
-| `context` | dict | None | Current context (containing `active_goal`, etc.) |
-| `top_k` | int | 5 | Number of memories to return |
-| `strategy` | str | None | Force a strategy; see table below |
 
 **Strategy options:**
 
-| Value | Best for | Characteristics |
-|-------|---------|-----------------|
+| strategy | Best for | Characteristic |
+|----------|---------|----------------|
 | `"semantic"` | Simple similarity queries | Single vector search — fastest |
-| `"temporal"` | Time-related queries ("recent …", "last time …") | Sorted by recency weight |
-| `"jit"` | Complex reasoning ("why …", "what caused …") | Multi-step retrieval — most accurate |
-| `"hybrid"` | When there is an active working goal | Semantic + graph path combined |
-| `"graph"` | When entity relationships matter | Graph path supplements candidates |
-
-> When `strategy` is not specified, the Scheduler selects automatically based
-> on query characteristics.
+| `"temporal"` | Time-related ("recent", "last time") | Sorted by recency |
+| `"jit"` | Complex reasoning ("why", "cause") | Multi-step — most accurate |
+| `"hybrid"` | Active working goal present | Semantic + graph path combined |
+| `"graph"` | Entity relationship queries | Graph path supplements candidates |
+| `None` | General use (recommended) | Scheduler auto-decides |
 
 **Return value — `RecallResult`:**
 
 ```python
-result.memory_objects    # List[MemoryObject], sorted by relevance
-result.recall_reasoning  # str — strategy used and reasoning
-result.relevance_scores  # Dict[str, float] — score per memory
-result.predicted_need    # List[str] — what the system predicted you need
+result.memory_objects     # List[MemoryObject], sorted by relevance
+result.recall_reasoning   # Strategy explanation and reasoning trace
+result.relevance_scores   # Dict[memory_id, float]
+result.predicted_need     # List[str] — what the system predicted you need
 ```
 
 ---
 
-### Runtime State
+### 4.4 Runtime State
 
-Save and restore the AI's complete cognitive state across sessions.
-
-#### Saving State
+#### Save
 
 ```python
 state = hmr.save_runtime_state(
     goal="Design async Scheduler",
-    plan=[
-        "Research IPC protocol ✓",
-        "Design task-queue API",
-        "Implement priority scheduling",
-        "Load-test validation"
-    ],
+    plan=["Research IPC ✓", "Design API ✓", "Implement", "Load test"],
     context={
-        "current_focus": "Task-queue API design",
-        "blockers": ["Need to confirm IPC protocol spec"],
-        "confidence": 0.7
+        "current_focus": "implementation phase",
+        "blockers": [],
+        "confidence": 0.85
     }
 )
-
 print(state.runtime_id)   # rt_a1b2c3d4
 ```
 
-#### Restoring State
+#### Restore
 
 ```python
-# After restart
 hmr2 = HMR(storage_path="./my_project")
+state = hmr2.restore_runtime_state()              # latest state
+state = hmr2.restore_runtime_state("rt_a1b2c3d4") # specific state
 
-# Restore the latest state
-state = hmr2.restore_runtime_state()
-
-# Or restore a specific state
-state = hmr2.restore_runtime_state(runtime_id="rt_a1b2c3d4")
-
-if state:
-    print(state.active_goal)      # "Design async Scheduler"
-    print(state.current_plan)     # ["Research IPC protocol ✓", ...]
-    print(state.current_context)  # {"current_focus": "Task-queue API design", ...}
+print(state.active_goal)    # "Design async Scheduler"
+print(state.current_plan)   # ["Research IPC ✓", ...]
 ```
 
-**What restoration does automatically:**
-1. Restores SM-2 memory states (review history for each memory)
+**Restoration auto-executes:**
+1. SM-2 memory state recovery (per-memory review history)
 2. Pre-loads memories most relevant to the current goal
-3. Prints the pre-loading strategy used
+3. Policy weights restored
 
 ---
 
-### Agent Workspaces
-
-Each agent has its own workspace, persisted to disk across restarts.
+### 4.5 Agent Workspaces
 
 ```python
-# Get or create workspace
+# Get or create workspace (auto-persisted)
 ws = hmr.get_workspace("agent_backend")
 
-# Set goal and tasks
 ws.active_goal = "Implement task queue"
-ws.push_task({"name": "Design queue interface", "status": "todo", "priority": 1})
-ws.push_task({"name": "Implement priority heap",  "status": "todo", "priority": 2})
+ws.push_task({"name": "Design interface", "status": "todo"})
+ws.push_task({"name": "Implement priority heap", "status": "todo"})
+ws.temporary_thoughts.append("Consider heapq for the min-heap")
 
-# Record temporary thoughts (not stored in long-term memory)
-ws.temporary_thoughts.append("Consider using heapq for the min-heap")
-
-# Persist the workspace (auto-saved on ingest; can also be manual)
+# Persist (or wait for next ingest to auto-save)
 hmr.save_workspace("agent_backend")
 
-# Mark a task done
-completed = ws.pop_task()
-print(completed["name"])   # "Implement priority heap" (LIFO)
+# Complete a task (LIFO)
+done = ws.pop_task()
 
-# Multi-agent scenario
-ws_frontend = hmr.get_workspace("agent_frontend")
-ws_frontend.active_goal = "Build management UI"
-
-# After restart — workspaces are fully restored
+# After restart — fully restored
 hmr2 = HMR(storage_path="./my_project")
-ws_back = hmr2.get_workspace("agent_backend", create=False)
-print(ws_back.active_goal)         # "Implement task queue"
-print(len(ws_back.task_stack))     # 1 (one task already completed)
+ws2 = hmr2.get_workspace("agent_backend", create=False)
+print(ws2.active_goal)         # "Implement task queue"
+print(len(ws2.task_stack))     # 1 (one task completed)
 ```
 
 ---
 
-### Memory Compression
-
-Compress multiple related memories into a single abstract piece of knowledge.
+### 4.6 Memory Compression
 
 ```python
-# Compress all memories of a given type
+# Compress by type
 compressed = hmr.compress_memories(
-    memory_type="execution",   # compress all execution records
-    max_memories=20            # process at most 20 at a time
+    memory_type="execution",
+    max_memories=20
 )
 
-# Compress specific memories by ID
+# Compress specific IDs
 compressed = hmr.compress_memories(
     memory_ids=["mem_001", "mem_002", "mem_003"]
 )
 
 if compressed:
-    print(compressed.title)    # "[Compressed] failure-record + load-test"
-    print(compressed.content)  # distilled abstract knowledge
+    print(compressed.title)    # "[Compressed] backup-record + incident"
     print(compressed.tags)     # [..., "compressed"]
 ```
 
-**Compression strategy:**
-- OpenAI API available → LLM extracts core patterns and rules
-- No API key → TF-IDF keyword summarisation
-
-**Automatic compression:**  
-Set `LifecycleConfig.max_memories_per_type`; when the count for a type exceeds
-that threshold the Lifecycle Engine triggers compression in the background
-automatically — no manual call needed.
+Strategy: OpenAI LLM summarisation if API key present, else TF-IDF keyword extraction.
 
 ---
 
-### System Status
+## 5. v2.0 New: ThoughtChain Engine
+
+### Core Idea
+
+```
+Before v2.0: records *what happened* (execution memories)
+v2.0:        records *why it thought that* (full reasoning chain)
+
+Value:
+  1. Traceability  — trace back the exact reasoning path
+  2. Learning      — identify which judgements were wrong
+  3. Handover      — hand off a task with full cognitive context
+  4. Reuse         — successful chains guide future decisions
+```
+
+### API Reference
+
+#### start_thinking — Create a chain
 
 ```python
-status = hmr.get_system_status()
+chain = hmr.start_thinking(
+    goal="Diagnose Scheduler IPC timeout root cause",
+    expected_outcome="Identify root cause and resolve",  # optional
+    agent_id="agent_backend"                              # optional
+)
+print(chain.chain_id)   # tc_a1b2c3d4
+print(chain.status)     # ChainStatus.OPEN
+```
 
-print(f"Version:           {status['version']}")
-print(f"Total memories:    {status['memory_fs']['total_memories']}")
-print(f"Total vectors:     {status['vector_store']['total_vectors']}")
-print(f"Data synced:       {status['synced']}")          # True/False
-print(f"Embedding:         {status['embedding_provider']}")
-print(f"Graph nodes:       {status['memory_graph']['total_nodes']}")
-print(f"Graph edges:       {status['memory_graph']['total_edges']}")
-print(f"Dominant strategy: {status['scheduler']['dominant_strategy']}")
-print(f"Cache hit rate:    {status['scheduler']['cache_hit_rate']}")
-print(f"Overdue reviews:   {status['overdue_reviews']}")
-print(f"Active workspaces: {status['active_workspaces']}")
+#### think — Append a thought node
 
-# Lifecycle breakdown
-lc = status['lifecycle']
-print(f"Fresh memories:    {lc['by_state']['fresh']}")
-print(f"Active memories:   {lc['by_state']['active']}")
-print(f"Fading memories:   {lc['by_state']['fading']}")
-print(f"Dormant memories:  {lc['by_state']['dormant']}")
-print(f"At-risk memories:  {len(lc['at_risk'])} (near auto-deletion)")
+```python
+from hmr.engines.thought_chain import ThoughtType
+
+hmr.think(chain.chain_id,
+          "Queue depth sustained >800; consume rate < produce rate",
+          ThoughtType.OBSERVATION, confidence=0.95)
+
+hmr.think(chain.chain_id,
+          "Hypothesis: consumer thread count is insufficient",
+          ThoughtType.HYPOTHESIS, confidence=0.7)
+
+hmr.think(chain.chain_id,
+          "Hypothesis: consumers preempted by CPU-intensive tasks",
+          ThoughtType.HYPOTHESIS, confidence=0.8)
+
+# Attach supporting memory IDs (trace the evidence)
+recall_result = hmr.recall(query="IPC backpressure mechanism")
+supporting = [m.id for m in recall_result.memory_objects[:2]]
+
+hmr.think(chain.chain_id,
+          "Decision: scale consumers to x3 + raise thread priority",
+          ThoughtType.DECISION, confidence=0.85, memory_ids=supporting)
+
+hmr.think(chain.chain_id,
+          "Deployed: consumers x3 + priority raised",
+          ThoughtType.ACTION, confidence=1.0)
+```
+
+#### reflect_on — Trigger reflection
+
+```python
+result = hmr.reflect_on(
+    chain_id=chain.chain_id,
+    actual_outcome="Queue depth dropped 800 → 50; timeouts eliminated",
+    rating=0.92     # 0–1; omit for auto-inference
+)
+
+print(result.accuracy)           # 0.75 (correct nodes / total nodes)
+print(result.correct_nodes)      # IDs of correctly judged thoughts
+print(result.wrong_nodes)        # IDs of incorrectly judged thoughts
+print(result.key_mistakes)       # Descriptions of key errors
+print(result.insights)           # Distilled insights
+print(result.suggested_memory)   # Content auto-stored as a reflection memory
+```
+
+After reflection:
+- Each thought node gets a `was_correct` flag (True / False / None)
+- High-value insights auto-stored as `reflection` type memory
+- Chain status becomes `CLOSED`
+
+#### best_decision_for — Query historical best decision
+
+```python
+best = hmr.best_decision_for("IPC queue backup problem")
+# → "[Historical ref, accuracy=90%] Scale consumer threads x3 + raise priority"
+# → Returns None if no relevant historical chains exist
+```
+
+#### Inspect chains
+
+```python
+# Get a single chain
+chain_obj = hmr.thought_chain.get_chain(chain.chain_id)
+print(chain_obj.to_summary())   # human-readable summary
+
+# Find similar historical chains
+similar = hmr.thought_chain.find_similar_chains("IPC timeout", top_k=3)
+
+# Statistics
+stats = hmr.thought_chain.get_stats()
+print(stats["total_chains"])              # total number of chains
+print(stats["avg_reflection_accuracy"])  # average reflection accuracy
+print(stats["active_chains"])            # chains still open/active
+```
+
+### Complete ThoughtChain Example
+
+```python
+from hmr.engines.thought_chain import ThoughtType
+
+# Multi-day incident investigation
+chain = hmr.start_thinking(
+    goal="Scheduler high-load response timeout — root cause analysis",
+    expected_outcome="p99 latency < 100ms"
+)
+
+# Day 1: gather observations
+hmr.think(chain.chain_id, "p99 latency 1200ms, far above SLA of 100ms",
+          ThoughtType.OBSERVATION)
+hmr.think(chain.chain_id, "IPC queue depth sustained >1000",
+          ThoughtType.OBSERVATION)
+hmr.think(chain.chain_id, "CPU usage only 40% — not CPU-bound",
+          ThoughtType.OBSERVATION)
+
+# Hypotheses
+hmr.think(chain.chain_id, "Hypothesis: consumer thread count too low",
+          ThoughtType.HYPOTHESIS, 0.7)
+hmr.think(chain.chain_id, "Hypothesis: IO blocking stalls consumers",
+          ThoughtType.HYPOTHESIS, 0.6)
+
+# Day 2: validate and decide
+hmr.think(chain.chain_id, "Confirmed: consumer threads waiting on sync IO",
+          ThoughtType.OBSERVATION)
+hmr.think(chain.chain_id, "Decision: switch to async IO + scale consumers",
+          ThoughtType.DECISION, 0.9)
+hmr.think(chain.chain_id, "Deployed: async IO refactor + consumer scaling",
+          ThoughtType.ACTION)
+
+# Post-execution reflection
+ref = hmr.reflect_on(
+    chain.chain_id,
+    "p99 dropped to 45ms — better than SLA target",
+    rating=0.95
+)
+print(ref.insights)
+print(hmr.thought_chain.get_chain(chain.chain_id).to_summary())
 ```
 
 ---
 
-## Advanced Components
+## 6. v2.0 New: Memory Policy Engine
+
+### Core Idea
+
+```
+v1.x: store/recall/forget strategies are all hard-coded
+v2.0: learns from feedback — policy weights updated dynamically
+
+Three sub-policies:
+  IngestPolicy  → what to store, which type, what confidence?
+  RecallPolicy  → which strategy, how many results (top_k)?
+  ForgetPolicy  → how fast to decay, when to delete?
+```
+
+### feedback — Policy Feedback (Core)
+
+```python
+# Recall result was useful
+hmr.feedback(
+    event_type="recall_hit",
+    memory_ids=[m.id for m in result.memory_objects[:2]],
+    signal=0.85,             # positive = good
+    query="IPC timeout cause",
+    strategy="jit"
+)
+
+# Recall result was useless
+hmr.feedback(
+    event_type="recall_miss",
+    memory_ids=[m.id for m in unused_results],
+    signal=-0.5
+)
+
+# Task succeeded
+hmr.feedback(
+    event_type="task_success",
+    memory_ids=related_memory_ids,
+    signal=0.9,
+    context={"memory_type": "execution"}
+)
+
+# Task failed
+hmr.feedback(
+    event_type="task_failure",
+    memory_ids=related_memory_ids,
+    signal=-0.7
+)
+
+# Compression improved recall quality
+hmr.feedback(
+    event_type="compress_gain",
+    memory_ids=[compressed_memory.id],
+    signal=0.6
+)
+```
+
+**event_type reference:**
+
+| Event | Signal range | Description |
+|-------|------------|-------------|
+| `recall_hit` | 0.5 – 1.0 | Recalled memories were actually used |
+| `recall_miss` | -1.0 – -0.1 | Recalled memories were entirely unused |
+| `task_success` | 0.5 – 1.0 | Full task succeeded |
+| `task_failure` | -1.0 – -0.1 | Task failed |
+| `compress_gain` | 0.3 – 0.8 | Compression improved recall quality |
+
+### Policy-assisted ingest / recall
+
+```python
+# Auto-classify on ingest
+mem = hmr.ingest(content, use_policy=True)
+# Works for both English and Chinese via character-level matching
+
+# Policy assists recall scheduling
+result = hmr.recall(query, use_policy=True)   # default: True
+# Adjusts strategy and top_k based on historical hit rate
+```
+
+### Inspect Policy state
+
+```python
+stats = hmr.policy.get_stats()
+print(stats["total_feedback"])      # total feedback events
+print(stats["positive_feedback"])   # positive signals
+print(stats["positive_ratio"])      # higher = policy is working well
+print(stats["recall_hit_rate"])     # recall hit rate
+print(stats["policy_updates"])      # number of weight updates
+
+# Current weight biases (for debugging)
+weights = hmr.policy.get_policy_weights_summary()
+print(weights["ingest_type_bias"])       # per-type classification lean
+print(weights["recall_strategy_bias"])  # per-strategy usage lean
+```
+
+### Policy Best Practices
+
+```python
+# 1. Provide feedback after every recall
+result = hmr.recall(query="...")
+used = result.memory_objects[:1]
+hmr.feedback("recall_hit", [m.id for m in used], signal=0.8,
+             query="...", strategy="jit")
+
+# 2. Summarise feedback at task end
+if task_succeeded:
+    hmr.feedback("task_success", all_related_ids, signal=0.9)
+else:
+    hmr.feedback("task_failure", all_related_ids, signal=-0.6)
+
+# 3. Use use_policy=True to let the system learn optimal ingestion
+for log_entry in daily_logs:
+    hmr.ingest(log_entry, use_policy=True)
+    # Policy gradually learns the project's memory style
+```
+
+---
+
+## 7. v2.0 New: Self-Evolution Engine
+
+### Core Idea
+
+```
+Problem: memory base bloats over time with duplicates, redundancies, contradictions
+Solution: Evolution Engine actively optimises memory structure
+
+Three core operations:
+  abstract: similar memories → abstract concept (knowledge distillation)
+  resolve:  contradictory pair → keep high-confidence, lower the other
+  suggest:  analyse usage → recommend optimal LifecycleConfig parameters
+```
+
+### evolve — Run Evolution
+
+```python
+# Preview first (dry_run=True — analyse only, no changes)
+preview = hmr.evolve(dry_run=True)
+print(preview["summary"])
+for action in preview["actions"]:
+    print(f"  {action}")
+# Output:
+# Evolution done: abstracted 2 clusters, resolved 1 contradiction
+#   [Preview] Can abstract 5 [execution] memories
+#   [Preview] Contradiction: 《IPC should be sync》vs《IPC should be async》
+
+# Execute for real
+report = hmr.evolve(dry_run=False)
+print(report["summary"])
+print(report["abstractions"])             # clusters abstracted
+print(report["contradictions_resolved"])  # contradictions resolved
+print(report["suggestions"])              # config recommendations
+```
+
+### Reading the Evolution Report
+
+```python
+report = hmr.evolve()
+
+# summary: one-line overview
+print(report["summary"])
+# → "Evolution done: abstracted 2 clusters, resolved 1 contradiction, health: ✅ Healthy"
+
+# actions: per-operation detail
+for action in report["actions"]:
+    print(action)
+# → ✅ Abstracted 6 [execution] memories → 《[Abstract] backup-record + timeout》
+# → 🔧 Resolved contradiction: 《IPC sync》vs《IPC async》(semantic opposites)
+# → 💡 Suggestion: type count 120 > threshold; recommend lowering to 80
+
+# suggestions: config recommendations
+sugg = report["suggestions"]
+print(sugg["suggested_config"])   # recommended LifecycleConfig params
+print(sugg["reasons"])            # why
+print(sugg["current_health"])     # system health summary
+```
+
+### When to Run Evolution
+
+```python
+# Option A: run manually after accumulating memories (recommended)
+if hmr.memory_fs.get_statistics()["total_memories"] % 100 == 0:
+    hmr.evolve()
+
+# Option B: daily schedule
+import schedule
+schedule.every().day.at("02:00").do(lambda: hmr.evolve())
+
+# Option C: after major task completion
+hmr.evolve()
+```
+
+### Evolution Statistics
+
+```python
+evo_stats = hmr.evolution.get_stats()
+print(evo_stats["total_operations"])   # total operations performed
+print(evo_stats["by_operation"])       # breakdown: {"abstract": 5, "resolve": 2}
+print(evo_stats["recent_operations"])  # last 5 operations
+```
+
+---
+
+## 8. v1.5 Advanced Components Recap
 
 ### Memory Scheduler
 
-The Scheduler decides which recall strategy to use on every call — the key
-step that turns HMR from a retrieval tool into a memory operating system.
-
 ```python
-# View scheduling statistics
-stats = hmr.scheduler.get_stats()
-print(stats["strategy_counts"])    # call count per strategy
-print(stats["cache_hit_rate"])     # hot-cache hit rate
-print(stats["dominant_strategy"])  # most-used strategy
-
-# Inspect a scheduling decision without executing a recall
+# Inspect a scheduling decision without executing recall
 plan = hmr.scheduler.schedule(
-    query="Why does IPC latency cause Scheduler timeouts?",
+    query="Why does IPC latency slow down the Scheduler?",
     context={"active_goal": "Optimise Scheduler"}
 )
-print(plan.strategy.value)   # "hybrid"
-print(plan.use_jit)          # True
-print(plan.top_k)            # 6
-print(plan.reasoning)
-# "Active goal present (Optimise Scheduler), using hybrid strategy"
+print(plan.strategy.value)   # "jit"
+print(plan.use_jit)           # True
+print(plan.top_k)             # 8
+print(plan.reasoning)         # "Complex query — using JIT multi-step retrieval"
 
-# Invalidate cache entries when a memory is updated
-hmr.scheduler.invalidate_cache("mem_001")
+stats = hmr.scheduler.get_stats()
+print(stats["strategy_counts"])    # call counts per strategy
+print(stats["cache_hit_rate"])     # hot-cache hit rate
+print(stats["dominant_strategy"]) # most-used strategy
 ```
-
-**Hot-cache details:**
-
-| Property | Default | Description |
-|----------|---------|-------------|
-| Capacity | 50 entries | LRU eviction when full |
-| TTL | 300 s (5 min) | Entries expire automatically |
-| Policy | LRU | Least-recently-used evicted first |
-| Benefit | Same query → instant return | No re-retrieval cost |
-
----
 
 ### JIT Memory Compiler
 
-Upgrades single-shot vector search to multi-step reasoning retrieval.
-Best for complex questions.
-
 ```python
-# Use directly (recall() calls this automatically for complex queries)
+# Direct use (auto-triggered by recall for complex queries)
 result = hmr.jit_compiler.compile(
-    query="Why did IPC latency cause a cascade of Scheduler timeouts?",
-    context={"active_goal": "Investigate production incident"},
+    query="Why did IPC latency cause a Scheduler timeout cascade?",
+    context={"active_goal": "Investigate incident"},
     top_k=5,
-    max_steps=3   # at most 3 retrieval rounds
+    max_steps=3
 )
 
-# Inspect each retrieval step
 for step in result.steps:
-    print(f"Step {step.step + 1}: {step.query}")
-    print(f"  Found:      {len(step.memories)} memories")
-    print(f"  Confidence: {step.confidence}")
-    print(f"  Gaps:       {step.gaps}")
+    print(f"Step {step.step+1}: {step.query}")
+    print(f"  Found {len(step.memories)}, confidence {step.confidence}")
+    print(f"  Gaps: {step.gaps}")
 
-# Query rewrite trace
 print("Query trace:", result.query_trace)
-# ["Why did IPC latency cause…", "IPC design principle timeout",
-#  "Scheduler timeout cascading"]
-
-print(result.reasoning)
-# "JIT compiled 2 steps, trace: original → rewrite-1 → rewrite-2,
-#  15 candidates → top 5 selected (confidence: 0.82)"
 ```
 
-**When JIT is triggered automatically:**
-
-| Query characteristic | Example | Auto-triggers JIT |
-|---------------------|---------|-------------------|
-| Reasoning keywords | "why", "cause", "reason", "为什么" | ✅ |
-| Time-span keywords | "history", "trend", "evolution", "演化" | ✅ |
-| Manual override | `recall(strategy="jit")` | ✅ |
-| Pending tasks > 3 | Active runtime with many tasks | ✅ |
-
----
-
 ### Memory Lifecycle Engine
-
-Memories naturally decay; low-value memories are cleaned up automatically.
 
 ```python
 from hmr.engines.lifecycle import LifecycleConfig
 
 config = LifecycleConfig(
-    max_memories_per_type=80,       # auto-compress when count exceeds this
-    prune_retrievability=0.05,      # delete if SM-2 retrievability < 5%
-    prune_min_age_days=7,           # only consider deletion after 7 days
-    prune_require_zero_access=True, # only delete never-accessed memories
-    consolidation_batch=20,         # max memories per compression run
-    auto_enabled=True,              # enable automatic lifecycle checks
-    check_interval_ingests=10,      # check every N ingests
+    max_memories_per_type   = 80,
+    prune_retrievability    = 0.05,
+    prune_min_age_days      = 7,
+    prune_require_zero_access = True,
+    auto_enabled            = True,
+    check_interval_ingests  = 10,
 )
+hmr = HMR(storage_path="./data", lifecycle_config=config)
 
-hmr = HMR(storage_path="./my_project", lifecycle_config=config)
-
-# Manually trigger a full check
+# Manual trigger
 report = hmr.lifecycle.check_now(memory_type="execution")
-print(report.summary())
-# "Checked 50; deleted 3; compressed 20 → 1"
-print(report.reasons)
-# ["Deleted [execution] <Load Test #1> (retrievability=0.02, age=14d, 0 accesses)", ...]
+print(report.summary())   # "Checked 50; deleted 3; compressed 20 → 1"
 
-# View lifecycle statistics
-stats = hmr.lifecycle.get_lifecycle_stats()
-print(stats["by_state"])
+lc_stats = hmr.lifecycle.get_lifecycle_stats()
+print(lc_stats["by_state"])
 # {"fresh": 5, "active": 30, "fading": 10, "dormant": 3}
-print(stats["at_risk"])    # memories approaching auto-deletion
 ```
-
-**Memory lifecycle states:**
-
-| State | Condition | Description |
-|-------|-----------|-------------|
-| `fresh` | Age < 1 day | Newly ingested |
-| `active` | SM-2 retrievability > 0.7 | Recently accessed, memory clear |
-| `fading` | Retrievability 0.3–0.7 | Fading, could benefit from review |
-| `dormant` | Retrievability < 0.3 | Long unused, near forgotten |
-| `pruned` | Retrievability < 0.05 + never accessed + age ≥ 7 days | Auto-deleted |
-
-**SM-2 retrievability formula:**
-
-```
-R(t) = e^(-t / S)
-
-where:
-  t = days since last review
-  S = stability (grows with each review)
-
-After 5 reviews:  S ≈ 18 days  → memory lasts ~2 weeks without review
-After 10 reviews: S ≈ 90 days  → memory lasts ~3 months without review
-```
-
----
 
 ### Memory Graph Layer
 
-Automatically extracts entities and relationships from memories to build a
-structured cognitive network.
-
 ```python
-# The graph is updated automatically on every ingest.
-# You can also query it directly.
-
-# Find all nodes related to an entity (2-hop traversal)
+# Graph auto-builds on every ingest
 nodes = hmr.memory_graph.find_related("Scheduler", depth=2)
-for node in nodes:
-    print(f"[{node.node_type.value}] {node.label}  ({len(node.memory_ids)} memories)")
+for n in nodes:
+    print(f"[{n.node_type.value}] {n.label} ({len(n.memory_ids)} memories)")
 
-# Get the causal chain starting from an entity
+# Causal chain
 chain = hmr.memory_graph.get_causal_chain("deadlock")
 for node, edge in chain:
-    print(f"  →({edge.edge_type.value})→ {node.label}")
-# →(causal)→ queue backup →(causal)→ response timeout
+    print(f"→({edge.edge_type.value})→ {node.label}")
 
-# Graph-path recall — find all memory IDs related to a query
-memory_ids = hmr.memory_graph.get_memory_ids_for_query("IPC timeout root cause")
-print(f"Graph path found {len(memory_ids)} related memories")
-
-# Automatic semantic clustering
 clusters = hmr.memory_graph.auto_cluster()
-for c in clusters:
-    print(f"Cluster '{c.label}': {len(c.node_ids)} nodes")
-
-# Graph statistics
-stats = hmr.memory_graph.get_stats()
-print(stats)
-# {"total_nodes": 25, "total_edges": 38,
-#  "node_types": {"entity": 15, "episode": 8, "concept": 2},
-#  "edge_types": {"causal": 10, "temporal": 8, "semantic": 12, "part_of": 8}}
+print(hmr.memory_graph.get_stats())
 ```
-
-**Node types:**
-
-| Type | Description | Source |
-|------|-------------|--------|
-| `entity` | System/component names (Scheduler, IPC, Agent) | CamelCase words + tech nouns |
-| `episode` | Complete event episodes | `execution` / `reflection` memories |
-| `concept` | Abstract concepts (async, deadlock, priority) | Technical keywords |
-
-**Edge types:**
-
-| Type | Meaning | Example |
-|------|---------|---------|
-| `causal` | A causes B | deadlock → timeout |
-| `temporal` | A precedes B | queue full → message drop |
-| `semantic` | A ≈ B (similar meaning) | IPC ≈ message queue |
-| `part_of` | A is part of B | queue ∈ Scheduler |
 
 ---
 
-## Complete Workflow Examples
+## 9. Complete Workflow Examples
 
-### Scenario: Multi-day Development Project
+### Example 1: Multi-Day Incident Investigation
 
 ```python
 from hmr.core.hmr import HMR
+from hmr.engines.thought_chain import ThoughtType
 
-# ═══ Day 1: Research Phase ══════════════════════════════════════
-
-hmr = HMR(storage_path="./scheduler_project")
-
-hmr.ingest(
-    "IPC should use async message queues with backpressure control "
-    "to prevent producers from overrunning consumers and causing OOM.",
-    memory_type="concept",
-    title="IPC Design Principle",
-    metadata={"tags": ["ipc", "async", "backpressure"]}
-)
+# ═══ Day 1: Problem Discovery ═══════════════════════════════════
+hmr = HMR(storage_path="./incident_project")
 
 hmr.ingest(
-    "Attempted lock-based synchronous scheduling. "
-    "Deadlock appeared at concurrency >50 — Task A waited for Task B's lock "
-    "while Task B waited for Task A's lock, forming a circular wait.",
-    memory_type="execution",
-    title="Sync Scheduling Failure",
-    metadata={"tags": ["failure", "deadlock"], "confidence": 0.95}
+    "Production Scheduler p99 latency spiked from 50ms to 1200ms — sustained 2 hours",
+    memory_type="execution", title="Production Latency Alert",
+    metadata={"tags": ["production", "alert", "p99"]}
 )
+
+chain = hmr.start_thinking(
+    goal="Root cause: Scheduler p99 spike 50ms → 1200ms",
+    expected_outcome="Root cause identified; p99 restored to <100ms"
+)
+hmr.think(chain.chain_id, "p99 1200ms; CPU usage only 40%", ThoughtType.OBSERVATION, 0.95)
+hmr.think(chain.chain_id, "IPC queue depth sustained >1000",  ThoughtType.OBSERVATION, 0.95)
+hmr.think(chain.chain_id, "Not CPU-bound — suspect IO blocking", ThoughtType.HYPOTHESIS, 0.7)
 
 hmr.save_runtime_state(
-    goal="Design async Scheduler",
-    plan=["Research IPC ✓", "Study scheduling algorithms ✓",
-          "Design API", "Implement", "Load test"],
-    context={"current_phase": "design", "confidence": 0.6}
+    goal="Root cause: Scheduler p99 spike",
+    plan=["Gather metrics ✓", "Hypothesise ✓", "Validate", "Fix", "Verify"],
+    context={"active_chain": chain.chain_id, "confidence": 0.5}
 )
-print("Day 1 complete — state saved.")
 
-# ═══ Day 3: Continue Development ════════════════════════════════
+# ═══ Day 2: Validate and Fix ═════════════════════════════════════
+hmr2 = HMR(storage_path="./incident_project")
+state = hmr2.restore_runtime_state()
+active_chain_id = state.current_context.get("active_chain")
 
-hmr = HMR(storage_path="./scheduler_project")   # new process
-
-state = hmr.restore_runtime_state()
-print(f"Continuing: {state.active_goal}")
-print(f"Plan:       {state.current_plan}")
-
-# Complex query — JIT multi-step retrieval triggers automatically
-result = hmr.recall(
-    query="Why did the sync approach deadlock, and how does async fix it?",
+# Smart recall for relevant knowledge
+result = hmr2.recall(
+    query="IO blocking causing consumer thread stalls",
     context={"active_goal": state.active_goal}
 )
-print(f"Recall strategy: {result.recall_reasoning[:60]}")
+hmr2.feedback("recall_hit", [result.memory_objects[0].id], 0.8,
+              query="IO blocking consumers")
 
-hmr.ingest(
-    "Decision: use asyncio event loop + priority heap for the Scheduler. "
-    "Eliminates all thread locks — coroutine switching replaces context switching.",
-    memory_type="decision",
-    title="Scheduler Tech Stack Decision",
-    metadata={
-        "tags": ["asyncio", "scheduler", "decision"],
-        "runtime_dependencies": ["IPC Design Principle", "Sync Scheduling Failure"]
-    }
+# Continue the reasoning chain
+if active_chain_id:
+    hmr2.think(active_chain_id, "Profiling confirmed: consumers waiting on sync IO",
+               ThoughtType.OBSERVATION, 0.98)
+    hmr2.think(active_chain_id, "Decision: async IO + scale consumers to x3",
+               ThoughtType.DECISION, 0.9)
+    hmr2.think(active_chain_id, "Deployed: async IO refactor + consumer scaling",
+               ThoughtType.ACTION, 1.0)
+    hmr2.think(active_chain_id, "p99 dropped to 45ms — below SLA target",
+               ThoughtType.OUTCOME, 1.0)
+
+    ref = hmr2.reflect_on(
+        active_chain_id,
+        "p99 restored: 1200ms → 45ms",
+        rating=0.95
+    )
+    print(f"Reflection accuracy: {ref.accuracy:.0%}")
+    print(f"Insights: {ref.insights}")
+
+hmr2.ingest(
+    "Root cause: sync IO blocking consumer threads causing IPC queue backup. "
+    "Fix: async IO + consumer x3 scaling. Result: p99 1200ms → 45ms.",
+    memory_type="reflection",
+    title="IPC Latency Root Cause & Fix Summary",
+    metadata={"tags": ["ipc", "latency", "best-practice"], "confidence": 0.95}
 )
 
-hmr.save_runtime_state(
-    goal="Design async Scheduler",
-    plan=["Research IPC ✓", "Study scheduling algorithms ✓",
-          "Design API ✓", "Implement", "Load test"],
-    context={"current_phase": "implementation", "confidence": 0.85}
-)
+report = hmr2.evolve()
+print(report["summary"])
+
+best = hmr2.best_decision_for("IPC queue backup latency")
+print(f"Best historical decision: {best[:60] if best else 'None'}")
 ```
 
-### Scenario: Multi-Agent Collaboration
+### Example 2: Multi-Agent Collaboration
 
 ```python
 hmr = HMR(storage_path="./team_project")
 
-# Agent A — Backend
+# ── Backend agent ──────────────────────────────────────────────
 backend = hmr.get_workspace("agent_backend")
 backend.active_goal = "Implement Scheduler core logic"
 backend.push_task({"name": "Implement priority heap", "status": "in_progress"})
 
+be_chain = hmr.start_thinking("Design task priority algorithm",
+                               agent_id="agent_backend")
+hmr.think(be_chain.chain_id, "Need priority 1-10; high priority executes first",
+          ThoughtType.OBSERVATION)
+hmr.think(be_chain.chain_id, "Min-heap efficiently implements priority queue",
+          ThoughtType.DECISION, 0.9)
+
+# Publish the API spec so the frontend agent can find it
 hmr.ingest(
-    "Scheduler API: scheduler.submit(task, priority=1–10), "
-    "scheduler.cancel(task_id), scheduler.get_status(task_id)",
-    memory_type="decision",
-    title="Scheduler API Design",
+    "Scheduler API: submit(task, priority=1-10), cancel(task_id), status(task_id)",
+    memory_type="decision", title="Scheduler API Design",
     metadata={"tags": ["api", "scheduler"]}
 )
 hmr.save_workspace("agent_backend")
 
-# Agent B — Frontend
+# ── Frontend agent ─────────────────────────────────────────────
 frontend = hmr.get_workspace("agent_frontend")
 frontend.active_goal = "Build Scheduler management UI"
-frontend.push_task({"name": "Design task list page", "status": "todo"})
 
-# Frontend retrieves the API design from shared memory
-result = hmr.recall(query="Scheduler API interface", strategy="semantic")
-api_doc = result.memory_objects[0] if result.memory_objects else None
-print(f"Frontend retrieved API doc: {api_doc.title if api_doc else 'not found'}")
+api_result = hmr.recall(query="Scheduler API interface spec", strategy="semantic")
+if api_result.memory_objects:
+    api_doc = api_result.memory_objects[0]
+    hmr.feedback("recall_hit", [api_doc.id], 0.9)
+    print(f"Frontend retrieved API: {api_doc.content[:80]}")
 
 hmr.save_workspace("agent_frontend")
 
-# After restart — both workspaces are fully restored
+# After restart — both workspaces fully restored
 hmr2 = HMR(storage_path="./team_project")
-ws_b = hmr2.get_workspace("agent_backend",  create=False)
-ws_f = hmr2.get_workspace("agent_frontend", create=False)
-print(f"Backend goal:  {ws_b.active_goal}")
-print(f"Frontend goal: {ws_f.active_goal}")
+ws_be = hmr2.get_workspace("agent_backend",  create=False)
+ws_fe = hmr2.get_workspace("agent_frontend", create=False)
+print(f"Backend:  {ws_be.active_goal}")
+print(f"Frontend: {ws_fe.active_goal}")
 ```
 
-### Scenario: Long-running Learning Loop
+### Example 3: Continuous Learning System
 
 ```python
-hmr = HMR(storage_path="./learning_project")
+hmr = HMR(storage_path="./learning_system")
 
-# Accumulate execution traces over time
-for run in range(30):
-    hmr.ingest(
-        f"Run {run}: Scheduler latency p99={80 + run % 20}ms under {100 + run * 10} RPS. "
-        f"IPC queue depth peaked at {run % 5 * 100}.",
-        memory_type="execution",
-        title=f"Benchmark Run #{run}"
-    )
+# Simulate 30 days of execution records
+for day in range(30):
+    for run in range(3):
+        hmr.ingest(
+            f"Day{day+1} Run{run+1}: Scheduler p99={50+day%20}ms, "
+            f"IPC queue peak {run*100}, concurrency {200+day*10} RPS",
+            use_policy=True,
+            title=f"Daily Run Record Day{day+1}-{run+1}"
+        )
 
-# Auto-compression kicks in when count exceeds threshold.
-# Or trigger manually:
-compressed = hmr.compress_memories(memory_type="execution")
-if compressed:
-    print(f"Compressed to: {compressed.title}")
-    print(f"Content: {compressed.content[:200]}")
+    if (day + 1) % 10 == 0:
+        memories = hmr.memory_fs.list_memories(memory_type="execution")
+        hmr.feedback(
+            "task_success",
+            memory_ids=[m.id for m in memories[-5:]],
+            signal=0.85
+        )
+        status = hmr.get_system_status()
+        print(f"Day {day+1}: {status['memory_fs']['total_memories']} memories total")
 
-# The compressed memory is now a reusable concept
-result = hmr.recall(query="Scheduler benchmark performance patterns")
-print(f"Top result: {result.memory_objects[0].title}")
+# After 30 days: review what Policy learned
+print(hmr.policy.get_stats())
+print(hmr.policy.get_policy_weights_summary())
+
+# Self-evolve: compress redundancy, distil patterns
+report = hmr.evolve()
+print(report["summary"])
+# → "Evolution done: abstracted 3 clusters, resolved 0 contradictions, health: ✅ Healthy"
+
+# Distilled patterns are directly retrievable
+result = hmr.recall(query="Scheduler performance patterns", top_k=3)
+for mem in result.memory_objects:
+    print(f"[{mem.type}] {mem.title}")
 ```
 
 ---
 
-## Configuration Reference
+## 10. Configuration Reference
 
 ### LifecycleConfig — Full Options
 
@@ -953,136 +982,174 @@ from hmr.engines.lifecycle import LifecycleConfig
 
 LifecycleConfig(
     # Auto-compression trigger
-    max_memories_per_type   = 80,    # compress when per-type count exceeds this
-    consolidation_batch     = 20,    # max memories per compression run
-    consolidation_keep_ratio= 0.3,   # original memories' weight reduced to 30%
+    max_memories_per_type    = 80,    # compress when per-type count exceeds this
+    consolidation_batch      = 20,    # max memories per compression run
+    consolidation_keep_ratio = 0.3,   # original memories' weight reduced to 30%
 
-    # Auto-deletion conditions (ALL must be met)
-    prune_retrievability    = 0.05,  # SM-2 retrievability threshold (5%)
-    prune_min_age_days      = 7,     # minimum age in days
-    prune_require_zero_access = True,# only delete never-accessed memories
+    # Auto-deletion conditions (ALL must be satisfied simultaneously)
+    prune_retrievability     = 0.05,  # SM-2 retrievability threshold (5%)
+    prune_min_age_days       = 7,     # minimum age in days
+    prune_require_zero_access= True,  # only delete never-accessed memories
 
     # Scheduling
-    auto_enabled            = True,  # enable automatic lifecycle management
-    check_interval_ingests  = 10,    # check every N ingests
+    auto_enabled             = True,  # enable automatic lifecycle management
+    check_interval_ingests   = 10,    # check every N ingests
 )
 ```
 
 ### Environment Variables
 
 ```bash
-OPENAI_API_KEY=sk-...   # Used for Embedding and LLM summarisation
+OPENAI_API_KEY=sk-...    # Used for embeddings and LLM summarisation
 ```
 
-### Directory Layout
+### Data Directory Layout
 
 ```
 hmr_data/
-├── memories/
-│   ├── concepts/           # concept-type memories
-│   ├── executions/         # execution-type memories
-│   ├── decisions/          # decision-type memories
-│   └── ...                 # one sub-dir per type
-├── runtimes/               # RuntimeState JSON files
-├── workspaces/             # AgentWorkspace JSON files
-├── vector_store/
-│   ├── vectors.json        # persisted embedding vectors
+├── memories/            per-type memory files
+│   ├── concepts/
+│   ├── executions/
+│   ├── decisions/
+│   └── ...
+├── runtimes/            RuntimeState JSON files
+├── workspaces/          AgentWorkspace JSON files
+├── vector_store/        persisted vector index
+│   ├── vectors.json
 │   └── vector_metadata.json
-├── memory_graph/
-│   └── memory_graph.json   # persisted graph data
-├── index/
-│   ├── memory_index.json
-│   └── runtime_index.json
-└── schema_version.json
+├── memory_graph/        entity graph data
+│   └── memory_graph.json
+├── thought_chains/      thought chain files (v2.0)
+│   └── tc_*.json
+├── policy/              policy weights (v2.0)
+│   └── policy.json
+├── evolution/           evolution logs (v2.0)
+│   └── evolution_logs.json
+└── index/               index files
 ```
 
 ---
 
-## Troubleshooting
+## 11. System Status Monitoring
+
+```python
+status = hmr.get_system_status()
+
+# Core
+print(status["version"])                     # "2.0.0"
+print(status["memory_fs"]["total_memories"])
+print(status["vector_store"]["total_vectors"])
+print(status["synced"])                      # True = in sync
+
+# v1.5 components
+print(status["memory_graph"]["total_nodes"])
+print(status["memory_graph"]["total_edges"])
+print(status["scheduler"]["dominant_strategy"])
+print(status["scheduler"]["cache_hit_rate"])
+print(status["lifecycle"]["by_state"])
+# {"fresh": 5, "active": 30, "fading": 10, "dormant": 3}
+
+# v2.0 components
+print(status["thought_chain"]["total_chains"])
+print(status["thought_chain"]["avg_reflection_accuracy"])
+print(status["thought_chain"]["active_chains"])
+
+print(status["policy"]["total_feedback"])
+print(status["policy"]["positive_ratio"])
+print(status["policy"]["recall_hit_rate"])
+
+print(status["evolution"]["total_operations"])
+print(status["evolution"]["by_operation"])   # {"abstract": N, "resolve": M}
+
+# General
+print(status["overdue_reviews"])      # memories due for SM-2 review
+print(status["active_workspaces"])   # number of active agents
+print(status["embedding_provider"]) # openai/sentence_transformers/tfidf
+```
+
+---
+
+## 12. Troubleshooting
 
 ### "Rebuilding vector index" on startup
 
 ```
-[HMR] Empty vector index detected — rebuilding from MemoryFS (N memories)...
+[HMR] Rebuilding vector index (N memories)...
 ```
 
-**This is normal.** It happens on first startup or if `vector_store/` was
-deleted. Rebuilding completes automatically; it only runs once.
+**Normal behaviour** — happens on first start or if `vector_store/` was deleted.
+Completes automatically; won't appear again until the directory is removed.
+
+---
+
+### Policy classification is wrong
+
+```python
+# 1. Inspect the classification decision
+d = hmr.policy.decide_ingest(content, title=title)
+print(d)   # {"should_store": True, "memory_type": "...", "reasoning": "..."}
+
+# 2. Correct via feedback — Policy will learn
+m = hmr.ingest(content, memory_type="execution")  # manually specify correct type
+hmr.feedback("task_success", [m.id], signal=0.9,
+             context={"memory_type": "execution", "content": content})
+
+# 3. Ensure content contains recognisable feature words:
+# execution: fail/error/crash/timeout/backup/fault/blocked
+# decision:  decided/chose/selected/determined/adopted
+# reflection:because/cause/reason/root-cause/analysis
+# concept:   recommend/pattern/principle/approach/design
+```
+
+---
 
 ### Recall results are not relevant
 
 ```python
-# 1. Check which embedding provider is active
+# Check sync state
 status = hmr.get_system_status()
-print(status["embedding_provider"])
-# If "tfidf", consider installing a better embedding package.
+print(status["synced"])              # should be True
+print(status["embedding_provider"]) # check which embedding is active
 
-# 2. Force JIT strategy for complex questions
-result = hmr.recall(query="...", strategy="jit")
-
-# 3. Check data sync
-print(status["synced"])    # should be True
-
-# 4. Rebuild vector index if synced is False
+# Rebuild vector index
 hmr.vector_store.rebuild_from_memories(hmr.memory_fs.list_memories())
-```
 
-### `compress_memories` returns None
-
-```python
-# Reason: fewer than 2 memories meet the compression criteria.
-# Check how many low-weight memories exist:
-memories = hmr.memory_fs.list_memories(memory_type="execution")
-low = [m for m in memories if m.temporal_weight < 0.5]
-print(f"Compressible: {len(low)}")
-
-# Force-lower temporal weight to make them eligible:
-for m in memories[:5]:
-    m.temporal_weight = 0.3
-    hmr.memory_fs.write_memory(m)
-result = hmr.compress_memories(memory_type="execution")
-```
-
-### Memory Graph node count stays at 0
-
-```python
-# The rule-based extractor looks for CamelCase words and tech nouns.
-# Make sure memory content contains recognisable entities.
-
-# Good (entities will be extracted)
-hmr.ingest("The Scheduler encountered IPC queue backup under high load.", ...)
-
-# Poor (hard to extract entities from)
-hmr.ingest("Something went wrong, it was slow.", ...)
-```
-
-### Workspace disappears after restart
-
-```python
-# Always call save_workspace after modifying a workspace.
-ws = hmr.get_workspace("my_agent")
-ws.active_goal = "..."
-hmr.save_workspace("my_agent")   # ← required, or wait for next ingest
-```
-
-### SM-2 states not restored after restart
-
-```python
-# SM-2 states are stored inside RuntimeState.current_context.
-# Make sure you call save_runtime_state() before shutting down.
-hmr.save_runtime_state(goal=..., plan=...)
+# Force JIT for complex queries
+result = hmr.recall(query="...", strategy="jit")
 ```
 
 ---
 
-## Changelog
+### evolve() reports no operations
 
-| Version | Highlights |
-|---------|-----------|
-| **v1.5.0** | Added JIT Compiler, Memory Scheduler, Lifecycle Engine, Memory Graph |
-| **v1.1.0** | Fixed VectorStore persistence, real Embedding, SM-2 algorithm, Workspace persistence |
-| **v1.0.0** | Initial release — basic memory storage and recall |
+```python
+# Reason: triggers not met (cluster size <3, or no contradictions found)
+stats = hmr.memory_fs.get_statistics()
+print(stats["memory_types"])   # check per-type counts
+
+# Run evolution directly on the engine for detailed output
+report = hmr.evolution.evolve(
+    memories=hmr.memory_fs.list_memories(),
+    vector_store=hmr.vector_store,
+    memory_fs=hmr.memory_fs,
+)
+```
 
 ---
 
-*HMR v1.5 — Making AI systems truly remember, not just retrieve.*
+### Reflection insights not auto-stored
+
+```python
+# Verify ingest_fn is registered
+print(hmr.thought_chain._ingest_fn is not None)  # should be True
+
+# Manual fallback
+ref = hmr.reflect_on(chain_id, actual_outcome)
+if ref.suggested_memory:
+    hmr.ingest(ref.suggested_memory, memory_type="reflection",
+               title=f"[Chain insight] {goal[:30]}")
+```
+
+---
+
+*HMR v2.0 — Making AI remember not just answers, but how to think.*

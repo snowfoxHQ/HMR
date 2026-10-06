@@ -1,19 +1,22 @@
 # Changelog
 
-## v1.5.0
-- 新增 JIT Memory Compiler（多步推理检索）
-- 新增 Memory Scheduler（调度策略 + 热缓存 LRU）
-- 新增 Memory Lifecycle Engine（自动压缩/剪枝，后台异步）
-- 新增 Memory Graph（实体/因果/时序图，持久化）
+## v2.0.0 — 2026-06
+新增三大认知智能引擎：
+- ThoughtChain Engine — 显式推理链 + 反思循环
+- Memory Policy Engine — 存/取/忘策略学习（SGD，中英文支持）
+- Self-Evolution Engine — 模式识别 + 知识抽象 + 矛盾解决
 
-## v1.1.0
-- 修复 VectorStore 持久化（重启不再丢失向量）
-- 接入真实 Embedding（OpenAI → sentence-transformers → TF-IDF 三层 fallback）
-- 实现真正的 SM-2 遗忘曲线（替代伪 Ebbinghaus）
-- AgentWorkspace 持久化到磁盘
-- 文件原子写入 + 线程锁（并发安全）
-- compress_memories() 真实实现
-- list_memories type_map 修复
+## v1.5.0 — 2026-04
+- JIT Memory Compiler（多步推理检索）
+- Memory Scheduler（调度策略 + 热缓存 LRU）
+- Memory Lifecycle Engine（自动压缩/剪枝）
+- Memory Graph（实体/因果/时序图）
 
-## v1.0.0
+## v1.1.0 — 2026-02
+- VectorStore 持久化
+- 真实 Embedding（三层 fallback）
+- SM-2 遗忘曲线
+- AgentWorkspace 持久化 + 文件锁
+
+## v1.0.0 — 2026-01
 - 初始版本

@@ -1,15 +1,19 @@
 """
-HMR HTTP Service — 把 HMR 包成本地 HTTP 服务，供 OpenClaw 等外部 agent 调用
+HMR HTTP Service v2.0 - wraps HMR as a local HTTP service for external agents (OpenClaw etc.)
 
-前提：
-  1. 已安装 HMR：在 HMR 项目目录（含 pyproject.toml）运行过 pip install -e .
-  2. 已装服务依赖：pip install fastapi uvicorn
+Prerequisites:
+  1. HMR installed: run 'pip install -e .' in the HMR project dir (with pyproject.toml)
+  2. Service deps installed: pip install fastapi uvicorn
 
-启动：python server.py
-默认监听 http://127.0.0.1:8077（只绑本机）
+Start: python server.py
+Default: http://127.0.0.1:8077 (localhost only)
 
-可选环境变量：
+Optional env vars:
     HMR_STORAGE_PATH / HMR_HOST / HMR_PORT / HMR_TOKEN
+    OLLAMA_HOST / HMR_VISION_MODEL / HMR_VISION_PROMPT  (for /ingest_image)
+
+/ingest_image: use local Ollama vision model to caption an image, then store in HMR
+    Requires: ollama pull qwen2.5vl:7b
 """
 
 import os
@@ -21,7 +25,7 @@ from contextlib import asynccontextmanager
 try:
     from hmr.core.hmr import HMR
 except ImportError:
-    print("[HMR Service] 错误：找不到 hmr 包。请在 HMR 项目目录运行 pip install -e .",
+    print("[HMR Service] ERROR: hmr package not found. Run 'pip install -e .' in the HMR project dir.",
           file=sys.stderr)
     sys.exit(1)
 
@@ -30,7 +34,7 @@ try:
     from pydantic import BaseModel
     import uvicorn
 except ImportError:
-    print("[HMR Service] 错误：缺少依赖。请运行 pip install fastapi uvicorn",
+    print("[HMR Service] ERROR: missing deps. Run 'pip install fastapi uvicorn'.",
           file=sys.stderr)
     sys.exit(1)
 
@@ -39,6 +43,15 @@ HMR_STORAGE_PATH = os.environ.get("HMR_STORAGE_PATH", "./hmr_data")
 HMR_HOST = os.environ.get("HMR_HOST", "127.0.0.1")
 HMR_PORT = int(os.environ.get("HMR_PORT", "8077"))
 HMR_TOKEN = os.environ.get("HMR_TOKEN", "")
+
+# Vision model config (for /ingest_image)
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
+HMR_VISION_MODEL = os.environ.get("HMR_VISION_MODEL", "qwen2.5vl:7b")
+VISION_PROMPT = os.environ.get(
+    "HMR_VISION_PROMPT",
+    "describe this image in detail in Chinese.if it is a chart, diagram or UI screenshot, "
+    "explain key elements, structure and text.be specific, for later search."
+)
 
 _PROVIDER_MARKER = Path(HMR_STORAGE_PATH) / ".embedding_provider"
 
@@ -66,7 +79,7 @@ def _write_provider(provider: str):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global hmr, provider_mismatch
-    print(f"[HMR Service] 初始化 HMR，存储路径: {HMR_STORAGE_PATH}")
+    print(f"[HMR Service] Init HMR, storage path: {HMR_STORAGE_PATH}")
     hmr = HMR(storage_path=HMR_STORAGE_PATH)
 
     current = hmr.get_system_status().get("embedding_provider", "unknown")
@@ -75,18 +88,18 @@ async def lifespan(app: FastAPI):
     if last and last != current:
         provider_mismatch = {"from": last, "to": current}
         print("=" * 64, file=sys.stderr)
-        print(f"[HMR Service] ⚠️  检测到 Embedding 提供者切换：{last} → {current}",
+        print(f"[HMR Service] [!]  Embedding provider changed: {last} -> {current}",
               file=sys.stderr)
-        print("    旧向量索引与当前提供者不匹配，语义搜索可能失效。", file=sys.stderr)
-        print("    修复：curl -X POST http://127.0.0.1:8077/reindex", file=sys.stderr)
+        print("    old vector index does not match current provider, semantic search may fail.", file=sys.stderr)
+        print("    fix: curl -X POST http://127.0.0.1:8077/reindex", file=sys.stderr)
         print("=" * 64, file=sys.stderr)
     else:
         provider_mismatch = None
 
     _write_provider(current)
-    print(f"[HMR Service] HMR v{hmr.VERSION} 就绪（Embedding: {current}）")
+    print(f"[HMR Service] HMR v{hmr.VERSION} ready (Embedding: {current})")
     yield
-    print("[HMR Service] 关闭")
+    print("[HMR Service] close")
 
 
 app = FastAPI(title="HMR Memory Service", lifespan=lifespan)
@@ -94,7 +107,7 @@ app = FastAPI(title="HMR Memory Service", lifespan=lifespan)
 
 def check_token(x_hmr_token: Optional[str]):
     if HMR_TOKEN and x_hmr_token != HMR_TOKEN:
-        raise HTTPException(status_code=401, detail="无效的 HMR token")
+        raise HTTPException(status_code=401, detail="invalid HMR token")
 
 
 class IngestRequest(BaseModel):
@@ -103,16 +116,42 @@ class IngestRequest(BaseModel):
     title: Optional[str] = None
     tags: Optional[List[str]] = None
     confidence: Optional[float] = None
+    use_policy: bool = False
 
 class RecallRequest(BaseModel):
     query: str
     top_k: int = 5
     strategy: Optional[str] = None
+    use_policy: bool = True
 
 class SaveStateRequest(BaseModel):
     goal: Optional[str] = None
     plan: Optional[List[str]] = None
     context: Optional[Dict[str, Any]] = None
+
+class ThinkRequest(BaseModel):
+    goal: str
+    thoughts: Optional[List[Dict[str, Any]]] = None  # [{content, type, confidence}]
+    actual_outcome: Optional[str] = None
+    rating: Optional[float] = None
+
+class FeedbackRequest(BaseModel):
+    event_type: str   # recall_hit / recall_miss / task_success / task_failure
+    memory_ids: List[str]
+    signal: float     # -1.0 ~ 1.0
+    query: Optional[str] = None
+    strategy: Optional[str] = None
+
+
+class IngestImageRequest(BaseModel):
+    # (one of): image_path (local path accessible by server)or image_base64 (raw image content)
+    image_path: Optional[str] = None
+    image_base64: Optional[str] = None
+    title: Optional[str] = None
+    tags: Optional[List[str]] = None
+    prompt: Optional[str] = None      # custom prompt, default if omitted
+    model: Optional[str] = None       # custom vision model, default: HMR_VISION_MODEL
+    memory_type: str = "concept"
 
 
 @app.get("/health")
@@ -130,8 +169,8 @@ def health():
     if provider_mismatch:
         result["status"] = "degraded"
         result["warning"] = (
-            f"Embedding 提供者从 {provider_mismatch['from']} 切换为 "
-            f"{provider_mismatch['to']}，向量索引需重建。请 POST /reindex 修复。"
+            f"Embedding provider from {provider_mismatch['from']} to "
+            f"{provider_mismatch['to']}, vector index needs rebuild.please POST /reindex fix."
         )
     return result
 
@@ -149,7 +188,7 @@ def reindex(x_hmr_token: Optional[str] = Header(None)):
         "reindexed": True,
         "memory_count": len(memories),
         "embedding_provider": current,
-        "message": f"已用 {current} 重建 {len(memories)} 条记忆的向量索引",
+        "message": f"using {current} rebuild {len(memories)} memory vectors reindexed",
     }
 
 
@@ -162,7 +201,8 @@ def ingest(req: IngestRequest, x_hmr_token: Optional[str] = Header(None)):
     if req.confidence is not None:
         metadata["confidence"] = req.confidence
     mem = hmr.ingest(content=req.content, memory_type=req.memory_type,
-                     title=req.title, metadata=metadata or None)
+                     title=req.title, metadata=metadata or None,
+                     use_policy=req.use_policy)
     return {"id": mem.id, "type": mem.type, "title": mem.title,
             "summary": mem.semantic_summary}
 
@@ -173,11 +213,12 @@ def recall(req: RecallRequest, x_hmr_token: Optional[str] = Header(None)):
     if provider_mismatch:
         raise HTTPException(
             status_code=409,
-            detail=(f"向量索引与当前 Embedding 提供者不匹配"
-                    f"（索引建于 {provider_mismatch['from']}，当前 "
-                    f"{provider_mismatch['to']}）。请先 POST /reindex 重建。"),
+            detail=(f"vector index does not match current embedding provider"
+                    f" (index built with {provider_mismatch['from']}, current "
+                    f"{provider_mismatch['to']}).please POST /reindex to rebuild."),
         )
-    result = hmr.recall(query=req.query, top_k=req.top_k, strategy=req.strategy)
+    result = hmr.recall(query=req.query, top_k=req.top_k, strategy=req.strategy,
+                        use_policy=req.use_policy)
     return {
         "reasoning": result.recall_reasoning,
         "memories": [
@@ -214,7 +255,188 @@ def status(x_hmr_token: Optional[str] = Header(None)):
 
 
 if __name__ == "__main__":
-    print(f"[HMR Service] 启动于 http://{HMR_HOST}:{HMR_PORT}")
+    print(f"[HMR Service] listening on http://{HMR_HOST}:{HMR_PORT}")
     if HMR_TOKEN:
-        print("[HMR Service] 已启用 token 鉴权")
+        print("[HMR Service] enabled token auth")
     uvicorn.run(app, host=HMR_HOST, port=HMR_PORT)
+
+
+# =============================================================================
+# v2.0 new endpoints
+# =============================================================================
+
+@app.post("/think")
+def think(req: ThinkRequest, x_hmr_token: Optional[str] = Header(None)):
+    """
+    run a thought chain and reflect.
+    pass goal + thoughts; auto-create chain, append thoughts, reflect.
+    """
+    check_token(x_hmr_token)
+    from hmr.engines.thought_chain import ThoughtType
+
+    chain = hmr.start_thinking(req.goal)
+
+    for t in (req.thoughts or []):
+        tt_str = t.get("type", "observation").lower()
+        tt_map = {
+            "observation": ThoughtType.OBSERVATION,
+            "hypothesis":  ThoughtType.HYPOTHESIS,
+            "decision":    ThoughtType.DECISION,
+            "action":      ThoughtType.ACTION,
+            "insight":     ThoughtType.INSIGHT,
+        }
+        tt = tt_map.get(tt_str, ThoughtType.OBSERVATION)
+        hmr.think(chain.chain_id, t.get("content", ""), tt,
+                  confidence=t.get("confidence", 0.7))
+
+    result = None
+    if req.actual_outcome:
+        result = hmr.reflect_on(chain.chain_id, req.actual_outcome, req.rating)
+
+    return {
+        "chain_id": chain.chain_id,
+        "goal": chain.goal,
+        "thought_count": len(chain.thoughts),
+        "reflected": result is not None,
+        "insights": result.insights if result else [],
+        "suggested_memory": result.suggested_memory if result else None,
+    }
+
+
+@app.get("/best_decision")
+def best_decision(goal: str, x_hmr_token: Optional[str] = Header(None)):
+    """query best decision from past successful chains for a similar goal"""
+    check_token(x_hmr_token)
+    decision = hmr.best_decision_for(goal)
+    return {"goal": goal, "best_decision": decision}
+
+
+@app.post("/feedback")
+def feedback(req: FeedbackRequest, x_hmr_token: Optional[str] = Header(None)):
+    """send feedback to the policy engine to drive learning"""
+    check_token(x_hmr_token)
+    hmr.feedback(
+        event_type=req.event_type,
+        memory_ids=req.memory_ids,
+        signal=req.signal,
+        query=req.query,
+        strategy=req.strategy,
+    )
+    return {"recorded": True, "event_type": req.event_type, "signal": req.signal}
+
+
+@app.post("/evolve")
+def evolve(dry_run: bool = False, x_hmr_token: Optional[str] = Header(None)):
+    """
+    run a self-evolution cycle.
+    dry_run=true analyze only, no changes (preview mode).
+    """
+    check_token(x_hmr_token)
+    report = hmr.evolve(dry_run=dry_run)
+    return report
+
+
+# =============================================================================
+# Image ingestion (/ingest_image): local Ollama vision model captions -> store in HMR
+# =============================================================================
+
+def _describe_image_with_ollama(img_b64: str, model: str, prompt: str) -> str:
+    """Call local Ollama vision model, return a text description of the image"""
+    import urllib.request
+    import json as _json
+
+    payload = _json.dumps({
+        "model": model,
+        "prompt": prompt,
+        "images": [img_b64],
+        "stream": False,
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        f"{OLLAMA_HOST}/api/generate",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    # vision inference is slow, use a generous timeout
+    with urllib.request.urlopen(req, timeout=300) as resp:
+        data = _json.loads(resp.read())
+    return data.get("response", "").strip()
+
+
+@app.post("/ingest_image")
+def ingest_image(req: IngestImageRequest, x_hmr_token: Optional[str] = Header(None)):
+    """
+    Image ingestion: caption an image with the local vision model, then store in HMR.
+    The image itself is NOT stored in HMR; only the description (plus origin path if image_path given).
+
+    Provide either image_path (local path accessible by the server) or image_base64.
+
+    Example:
+        curl -X POST http://127.0.0.1:8077/ingest_image \
+             -H "Content-Type: application/json" \
+             -d '{"image_path": "I:/imgs/arch.png", "title": "diagram"}'
+    """
+    check_token(x_hmr_token)
+
+    import base64
+
+    # 1. get image base64
+    origin_path = None
+    if req.image_base64:
+        img_b64 = req.image_base64
+    elif req.image_path:
+        p = Path(req.image_path)
+        if not p.exists():
+            raise HTTPException(status_code=404, detail=f"Image not found: {req.image_path}")
+        if not p.is_file():
+            raise HTTPException(status_code=400, detail=f"Not a file: {req.image_path}")
+        try:
+            with open(p, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode("utf-8")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read image: {e}")
+        origin_path = str(p.resolve())
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Must provide either image_path or image_base64"
+        )
+
+    # 2. vision model generates description
+    model = req.model or HMR_VISION_MODEL
+    prompt = req.prompt or VISION_PROMPT
+    try:
+        desc = _describe_image_with_ollama(img_b64, model, prompt)
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=(f"Vision model call failed ({e}). Check Ollama is running "
+                    f"and model {model} is pulled (ollama pull {model}).")
+        )
+
+    if not desc:
+        raise HTTPException(status_code=502, detail="Vision model returned empty description")
+
+    # 3. store in HMR (append origin path to the description for later lookup)
+    content = desc
+    if origin_path:
+        content = f"{desc}\n\n[origin] {origin_path}"
+
+    title = req.title or (Path(req.image_path).stem if req.image_path else "image description")
+    tags = (req.tags or []) + ["image", "vision_description"]
+
+    mem = hmr.ingest(
+        content=content,
+        memory_type=req.memory_type,
+        title=title,
+        metadata={"tags": tags},
+    )
+
+    return {
+        "id": mem.id,
+        "title": mem.title,
+        "description": desc,
+        "origin_path": origin_path,
+        "model": model,
+    }

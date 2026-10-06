@@ -1,4 +1,4 @@
-# HMR Memory Service
+# HMR Memory Service v2.0
 
 把 HMR 包成本地 HTTP 服务，供 OpenClaw 等 agent 通过 hmr-memory skill 调用。
 
@@ -65,12 +65,17 @@ openclaw agent --message "我喜欢什么编程语言？"
 | 接口 | 方法 | 作用 |
 |------|------|------|
 | `/health` | GET | 健康检查（返回版本、provider、记忆数、同步状态） |
-| `/ingest` | POST | 存入记忆 |
-| `/recall` | POST | 召回记忆 |
+| `/ingest` | POST | 存入记忆（支持 `use_policy=true` 让 Policy 自动决定类型） |
+| `/recall` | POST | 召回记忆（支持 `use_policy=true` 让 Policy 辅助策略选择） |
 | `/save_state` | POST | 保存认知状态 |
 | `/restore_state` | GET | 恢复认知状态 |
 | `/reindex` | POST | 重建向量索引（embedding 提供者切换后用） |
-| `/status` | GET | 完整系统状态 |
+| `/status` | GET | 完整系统状态（含 v2.0 引擎统计） |
+| `/think` | POST | **v2.0** 推理链+反思（ThoughtChain） |
+| `/best_decision` | GET | **v2.0** 查询历史最优决策 |
+| `/feedback` | POST | **v2.0** 向 Policy 提供反馈驱动学习 |
+| `/evolve` | POST | **v2.0** 运行自我演化周期（`?dry_run=true` 预览） |
+| `/ingest_image` | POST | **图片入库** 本地视觉模型生成描述后存入（传 `image_path` 或 `image_base64`） |
 
 ## 故障自愈：embedding 提供者切换
 
@@ -141,3 +146,43 @@ python server.py
 $env:HMR_LANG_FILTER="auto"   # 搜中文只出中文
 python server.py
 ```
+
+
+## 图片入库（/ingest_image）
+
+用本地 Ollama 视觉模型把图片转成文字描述后存入 HMR。
+图片本身不进 HMR，只存描述（含原图路径）。
+
+### 前提
+
+```bash
+ollama pull qwen2.5vl:7b      # 拉视觉模型（8GB 显存够用）
+```
+
+### 用法
+
+```bash
+# 传服务器可访问的本地路径
+curl -X POST http://127.0.0.1:8077/ingest_image \
+     -H "Content-Type: application/json" \
+     -d '{"image_path": "I:/imgs/arch.png", "title": "架构图"}'
+
+# 或直接传 base64（客户端读图后编码）
+curl -X POST http://127.0.0.1:8077/ingest_image \
+     -H "Content-Type: application/json" \
+     -d '{"image_base64": "<BASE64>", "title": "截图"}'
+```
+
+存完后用 `/recall` 就能按图片内容语义检索。
+
+### 相关环境变量
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama 地址 |
+| `HMR_VISION_MODEL` | `qwen2.5vl:7b` | 视觉模型（也可请求里传 `model` 覆盖） |
+| `HMR_VISION_PROMPT` | （中文描述提示词） | 默认提示词 |
+
+> ⚠️ 8GB 显存提示：视觉模型和 Ollama embedding 模型会抢显存。
+> 若同时用 Ollama 跑 embedding，建议把 embedding 切到 sentence-transformers
+> （设 `HMR_ST_MODEL`，不设 `HMR_OLLAMA_MODEL`），把显存留给视觉模型。

@@ -1,4 +1,4 @@
-# HMR v1 in Hestia OS
+# HMR v2 in Hestia OS
 
 ## Integration Overview
 
@@ -402,17 +402,17 @@ metrics = {
 
 ## Roadmap
 
-### v1.1 ✅ 已发布
+### v1.1 ✅ Released
 - ✅ Core HMR stable
-- 🔲 Distributed HMR prototype
-- 🔲 Hestia integration examples
+- ✅ Distributed HMR prototype
+- ✅ Hestia integration examples
 
-### v2.0 ✅ 已发布
-- 🔲 ThoughtChain engine
-- 🔲 Advanced compression
-- 🔲 Self-optimization
+### v2.0 ✅ Released
+- ✅ ThoughtChain engine
+- ✅ Advanced compression
+- ✅ Self-optimization
 
-### v3.0 🔲 规划中
+### v3.0 🔲 Planned
 - 🔲 Full Cognitive OS
 - 🔲 Multi-agent ecosystems
 - 🔲 Autonomous learning

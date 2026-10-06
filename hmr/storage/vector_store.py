@@ -96,46 +96,22 @@ class EmbeddingProvider:
     def embed(self, text: str) -> List[float]:
         if self._provider == "openai":
             return self._embed_openai(text)
-        elif self._provider == "ollama":
-            return self._embed_ollama(text)
         elif self._provider == "sentence_transformers":
             return self._embed_st(text)
+        elif self._provider == "ollama":
+            return self._embed_ollama(text)
         else:
             return self._embed_tfidf(text)
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         if self._provider == "openai":
             return self._embed_openai_batch(texts)
-        elif self._provider == "ollama":
-            return [self._embed_ollama(t) for t in texts]
         elif self._provider == "sentence_transformers":
             return self._embed_st_batch(texts)
+        elif self._provider == "ollama":
+            return [self._embed_ollama(t) for t in texts]
         else:
             return [self._embed_tfidf(t) for t in texts]
-
-    # --- Ollama（本地，通过 HTTP API，不需额外依赖）---
-
-    def _embed_ollama(self, text: str) -> List[float]:
-        import urllib.request
-        import json as _json
-        url = f"{self._ollama_host}/api/embeddings"
-        payload = _json.dumps({
-            "model": self._ollama_model,
-            "prompt": text[:8000],
-        }).encode("utf-8")
-        req = urllib.request.Request(
-            url, data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                return _json.loads(resp.read()).get("embedding", [])
-        except Exception as e:
-            if getattr(self, "_provider", None) == "ollama":
-                print(f"[HMR Embedding] Ollama 调用失败，降级 TF-IDF: {e}")
-                self._provider = "tfidf"
-            return self._embed_tfidf(text)
 
     # --- OpenAI ---
 
@@ -171,6 +147,30 @@ class EmbeddingProvider:
     def _embed_st_batch(self, texts: List[str]) -> List[List[float]]:
         vecs = self._st_model.encode(texts, normalize_embeddings=True)
         return [v.tolist() for v in vecs]
+
+    # --- Ollama（本地，通过 HTTP API，不需额外依赖）---
+
+    def _embed_ollama(self, text: str) -> List[float]:
+        import urllib.request
+        import json as _json
+        url = f"{self._ollama_host}/api/embeddings"
+        payload = _json.dumps({
+            "model": self._ollama_model,
+            "prompt": text[:8000],
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            url, data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                return _json.loads(resp.read()).get("embedding", [])
+        except Exception as e:
+            if getattr(self, "_provider", None) == "ollama":
+                print(f"[HMR Embedding] Ollama 调用失败，降级 TF-IDF: {e}")
+                self._provider = "tfidf"
+            return self._embed_tfidf(text)
 
     # --- TF-IDF 字符级 n-gram（真实语义近似）---
 
@@ -232,7 +232,7 @@ class EmbeddingProvider:
     def dimension(self) -> int:
         if self._provider == "openai":
             return 1536
-        elif self._provider == "sentence_transformers":
+        elif self._provider in ("sentence_transformers", "ollama"):
             return self._dim
         else:
             return self._dim
