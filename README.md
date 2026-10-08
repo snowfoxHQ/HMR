@@ -1,10 +1,10 @@
-C:\tmp\Hmr\hmr1.5# HMR — Hestia Memory Runtime
+# HMR — Hestia Memory Runtime
 
 > English version: [README_EN.md](README_EN.md)
 
 > **持续认知运行时，为长期运行的 AI 系统而生**
 
-[![版本](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com/hestia-os/hmr)
+[![版本](https://img.shields.io/badge/version-2.0.0-blue)](https://github.com/snowfoxHQ/HMR)
 [![许可证](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10+-brightgreen)](https://python.org)
 
