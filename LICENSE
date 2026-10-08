@@ -19,19 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-## About This License
-
-HMR v1 (Hestia Memory Runtime) Core is released under the MIT License.
-
-This means:
-✅ You can use it freely in commercial projects
-✅ You can modify it
-✅ You can distribute it
-✅ You must include the license and copyright
-
-The only requirement: include this license text in your distribution.
-
-For enterprise features and extended support, see the project roadmap for upcoming plans.
