@@ -48,6 +48,16 @@ Borrowed from MemoraX Code without changing the existing retrieval and evolution
 | **Personal memory** | User Profile + Procedure topics + cadence injection | Collaboration preferences carry across tasks |
 | **Local trace** | JSONL / event_id dedupe / redaction / 7-day retention | Diagnosable recall and writes, zero main-path impact |
 
+### New in v2.2: Write Reliability
+
+Added from the automatic-writeback test audit, without extending the architecture:
+
+| Capability | What it does | Core value |
+|------------|-------------|------------|
+| **Storage consistency** | File-first writes with rollback, orphan-vector cleanup, three-store deletion | No one-sided residue between vectors and memory files |
+| **Write trust** | Source identity binding, workspace validation, pre-write redaction, single-process idempotency | Content has an owner; retries do not duplicate memories |
+| **Write recovery** | Pending states, error-classified backoff, restart recovery, insight compensation | Failed writes can retry; reasoning insights are no longer lost |
+
 ---
 
 ## 5-Minute Quick Start
@@ -132,7 +142,12 @@ HMR v2.0
 │
 ├── storage/
 │   ├── memory_fs.py       Filesystem storage (atomic writes)
-│   └── vector_store.py    Vector index (persisted)
+│   ├── vector_store.py    Vector index (persisted)
+│   ├── idempotency.py     Idempotency slots with TTL           — v2.2 ★
+│   └── pending.py         Write states and retry recovery      — v2.2 ★
+│
+├── security/              Pre-write redaction                 — v2.2 ★
+│   └── redaction.py       Span-merged sensitive-value masking
 │
 ├── personal/              Personal memory layer               — v2.1 ★
 │   ├── profile.py         User Profile preferences
@@ -185,6 +200,11 @@ hmr.recall(query, boundaries=["user"])   # filter by boundary
 hmr.ingest_card(card_text)               # structured card + verification gate
 hmr.personal_context(turn=1)             # profile + procedure injection
 
+# ── v2.2 Write reliability ───────────────────────────────────
+hmr.delete_memory(memory_id)             # sync file/index/vector deletion
+hmr.retry_pending()                      # replay due writes
+hmr.drain_pending()                      # best-effort flush on shutdown
+
 # ── System status ────────────────────────────────────────────
 hmr.get_system_status()                   # includes trace stats
 ```
@@ -195,6 +215,7 @@ hmr.get_system_status()                   # includes trace stats
 
 | Version | Highlights |
 |---------|-----------|
+| **v2.2** | Storage consistency / write trust / Pending recovery (write reliability batch) |
 | **v2.1** | Memory boundaries / structured cards / personal memory / local trace (borrowed from MemoraX Code) |
 | **v2.0** | ThoughtChain / Policy / Evolution — three cognitive intelligence engines |
 | **v1.5** | JIT Compiler / Scheduler / Lifecycle / Memory Graph |

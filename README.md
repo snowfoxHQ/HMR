@@ -48,6 +48,16 @@ HMR:    记忆 = 持续认知运行时
 | **个人记忆层** | User Profile 偏好 + Procedure 流程主题 + cadence 注入 | 跨任务的协作偏好与操作规范得以延续 |
 | **本地 Trace** | JSONL / event_id 去重 / 脱敏 / 7 天保留 | 可诊断召回与写入，失败不影响主链路 |
 
+### v2.2 新增：写入可靠性
+
+依据自动写回测试审计结论补充，不扩展架构：
+
+| 能力 | 做什么 | 核心价值 |
+|------|--------|---------|
+| **存储一致性** | 文件优先写入 + 失败回滚、孤儿向量清理、删除三处同步 | 向量与记忆文件不再出现单向残留 |
+| **写入可信性** | 来源身份绑定、工作区校验、写前脱敏、单进程幂等 | 内容有明确归属，重复提交不产生重复记忆 |
+| **写入恢复** | Pending 状态、错误分类退避、重启恢复、洞察补偿 | 失败写入可重试，推理洞察不再永久丢失 |
+
 ---
 
 ## 5 分钟快速开始
@@ -128,7 +138,12 @@ HMR v2.0
 │
 ├── storage/
 │   ├── memory_fs.py       文件系统存储（原子写入）
-│   └── vector_store.py    向量索引（持久化）
+│   ├── vector_store.py    向量索引（持久化）
+│   ├── idempotency.py     写入幂等占位（TTL）      ─ v2.2 ★
+│   └── pending.py         写入状态与重试恢复       ─ v2.2 ★
+│
+├── security/              写入前脱敏              ─ v2.2 ★
+│   └── redaction.py       敏感片段区间合并替换
 │
 ├── personal/              个人记忆层              ─ v2.1 ★
 │   ├── profile.py         User Profile 偏好画像
@@ -181,6 +196,11 @@ hmr.recall(query, boundaries=["user"])   # 按边界过滤
 hmr.ingest_card(card_text)               # 结构化记忆卡 + 验证门槛
 hmr.personal_context(turn=1)             # 画像 + 流程注入
 
+# ── v2.2 写入可靠性 ──────────────────────────────────────────
+hmr.delete_memory(memory_id)             # 文件/索引/向量同步删除
+hmr.retry_pending()                      # 重放到期写入
+hmr.drain_pending()                      # 退出前尽力刷新
+
 # ── 系统状态 ─────────────────────────────────────────────────
 hmr.get_system_status()                   # 含 trace 统计
 ```
@@ -191,6 +211,7 @@ hmr.get_system_status()                   # 含 trace 统计
 
 | 版本 | 核心内容 |
 |------|---------|
+| **v2.2** | 存储一致性 / 写入可信性 / Pending 恢复（写入可靠性补充批次） |
 | **v2.1** | 记忆边界 / 结构化记忆卡 / 个人记忆层 / 本地 Trace（借鉴 MemoraX Code） |
 | **v2.0** | ThoughtChain / Policy / Evolution 三大认知引擎 |
 | **v1.5** | JIT Compiler / Scheduler / Lifecycle / Memory Graph |
