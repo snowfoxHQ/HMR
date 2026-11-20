@@ -1,0 +1,30 @@
+{
+  "runtime_id": "rt_0e6607b6",
+  "active_goal": "设计调度器",
+  "current_plan": [
+    "研究",
+    "设计",
+    "实现"
+  ],
+  "active_reasoning": null,
+  "active_agents": [],
+  "active_memory_ids": [],
+  "current_context": {
+    "__sm2_states__": {
+      "mem_f8f6a679": {
+        "stability": 1.0,
+        "difficulty": 0.3,
+        "review_count": 0,
+        "last_review": "2026-11-20T21:52:27.006997",
+        "next_review": "2026-11-21T21:52:27.041376"
+      }
+    }
+  },
+  "focus_areas": [],
+  "pending_tasks": [],
+  "completed_tasks": [],
+  "uncertainty_level": 0.0,
+  "confidence_level": 0.5,
+  "created_at": "2026-11-20T21:52:27.044707",
+  "updated_at": "2026-11-20T21:52:27.044741"
+}

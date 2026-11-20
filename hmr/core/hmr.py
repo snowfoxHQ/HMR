@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 import hashlib
 import os
+import time
 
 from .models import (
     MemoryObject, RuntimeState, AgentWorkspace, CognitiveNode, RecallResult
@@ -33,6 +34,7 @@ from ..engines.evolution      import SelfEvolutionEngine
 from ..storage.memory_fs      import MemoryFS
 from ..storage.vector_store   import VectorStore
 from ..storage.idempotency    import IdempotencyStore
+from ..storage.pending        import PendingStore, is_retryable_error
 from ..security.redaction     import redact_content
 from ..personal               import PersonalMemoryContext
 from ..observability          import TraceStore
@@ -99,6 +101,7 @@ class HMR:
 
         # v2.2 S2：写入幂等（单 Runtime / 单进程边界）
         self.idempotency = IdempotencyStore(storage_path)
+        self.pending = PendingStore(storage_path)
 
         # ── 存储层 ────────────────────────────────────────────────────────────
         self.memory_fs = MemoryFS(storage_path)
@@ -143,6 +146,7 @@ class HMR:
             storage_path=f"{storage_path}/thought_chains"
         )
         self.thought_chain.register_ingest_fn(self.ingest)
+        self.thought_chain.register_pending_fn(self.queue_pending)
 
         self.policy = MemoryPolicyEngine(
             storage_path=f"{storage_path}/policy"
@@ -166,6 +170,7 @@ class HMR:
 
         # ── 启动同步 ──────────────────────────────────────────────────────────
         self._sync_vector_store()
+        self._recover_pending()
 
     # =========================================================================
     # 启动同步
@@ -209,6 +214,7 @@ class HMR:
         use_policy: bool = False,   # 是否用 Policy 自动决定类型和置信度
         boundary: Optional[str] = None,
         scope: Optional[str] = None,
+        _pending_id: Optional[str] = None,
     ) -> MemoryObject:
         """
         摄入记忆。
@@ -272,6 +278,16 @@ class HMR:
             # 占位记录指向的记忆已不存在，释放后正常重写
             self.idempotency.release(idem_key)
 
+        # v2.3 S3：先登记 accepted 状态，失败后仍可恢复
+        if _pending_id is None:
+            _pending_id = self.pending.add(
+                content=content,
+                memory_type=memory_type,
+                title=title or "",
+                metadata=meta,
+                idem_key=idem_key,
+            )
+
         # Policy 驱动模式
         if use_policy:
             ctx = {
@@ -285,8 +301,10 @@ class HMR:
                 ctx["existing_memory_count"]
             )
             if not policy_decision["should_store"]:
-                # Policy 认为不值得存：释放幂等占位，允许后续重试
+                # Policy 认为不值得存：释放占位并撤销 pending
                 self.idempotency.release(idem_key)
+                if _pending_id:
+                    self.pending.remove(_pending_id)
                 return MemoryObject(
                     type="concept", title=title or "跳过", content=content,
                     semantic_summary=f"[Policy跳过] {policy_decision['reasoning']}"
@@ -344,8 +362,15 @@ class HMR:
 
         try:
             self.semantic_engine.store(memory)
-        except Exception:
+        except Exception as exc:
             self.idempotency.release(idem_key)
+            if _pending_id:
+                attempts = self.pending.get(_pending_id).attempts if self.pending.get(_pending_id) else 0
+                # 不可重试错误推到很远的将来，避免启动恢复时无限重放
+                delay = min(60, 2 ** attempts) if is_retryable_error(exc) else 86400
+                self.pending.mark_failed(
+                    _pending_id, str(exc), time.time() + delay
+                )
             raise
         self.temporal_engine.create_temporal_state(memory)
 
@@ -374,6 +399,8 @@ class HMR:
         except Exception:
             pass
 
+        if _pending_id:
+            self.pending.mark_persisted(_pending_id)
         self.idempotency.mark(idem_key, memory.id)
         return memory
 
@@ -432,6 +459,58 @@ class HMR:
         self.semantic_engine.memory_cache.pop(memory_id, None)
         getattr(self, "_mem_lang", {}).pop(memory_id, None)
         return True
+
+    # =========================================================================
+    # Pending 恢复（v2.3 S3）
+    # =========================================================================
+
+    def queue_pending(
+        self,
+        content: str,
+        memory_type: str = "reflection",
+        title: str = "",
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """登记一条延后写入，供 ThoughtChain 等失败补偿路径使用。"""
+        return self.pending.add(
+            content=content,
+            memory_type=memory_type,
+            title=title or "",
+            metadata=dict(metadata or {}),
+            idem_key="",
+        )
+
+    def retry_pending(self, force: bool = False, max_items: int = 20) -> Dict[str, Any]:
+        """重放到期的 Pending 写入，返回统计字典。"""
+        items = (
+            [i for i in self.pending.all() if i.status != "persisted"]
+            if force
+            else self.pending.list_retryable()
+        )
+        stats = {"attempted": 0, "succeeded": 0, "failed": 0}
+        for item in items[:max_items]:
+            stats["attempted"] += 1
+            try:
+                self.ingest(
+                    content=item.content,
+                    memory_type=item.memory_type,
+                    title=item.title or None,
+                    metadata=item.metadata,
+                    _pending_id=item.pending_id,
+                )
+                stats["succeeded"] += 1
+            except Exception:
+                stats["failed"] += 1
+        return stats
+
+    def drain_pending(self, max_items: int = 20) -> Dict[str, Any]:
+        """退出前尽力刷新全部待处理写入。"""
+        return self.retry_pending(force=True, max_items=max_items)
+
+    def _recover_pending(self):
+        stats = self.retry_pending()
+        if stats["attempted"]:
+            print(f"[HMR] Pending 恢复：{stats}")
 
     # =========================================================================
     # personal_context（v2.1：个人记忆注入）

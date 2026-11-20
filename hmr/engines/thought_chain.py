@@ -436,7 +436,8 @@ class ThoughtChainEngine:
         self._lock = threading.Lock()
         self.chains: Dict[str, ThoughtChain] = {}
         self.reflector = Reflector()
-        self._ingest_fn = None  # 注入 HMR.ingest（存储洞察到长期记忆）
+        self._ingest_fn = None   # 注入 HMR.ingest（存储洞察到长期记忆）
+        self._pending_fn = None  # 注入 HMR.queue_pending（失败补偿）
 
         if self.storage_path:
             self.storage_path.mkdir(parents=True, exist_ok=True)
@@ -445,6 +446,10 @@ class ThoughtChainEngine:
     def register_ingest_fn(self, fn):
         """注入 HMR.ingest 函数，用于把洞察存入长期记忆"""
         self._ingest_fn = fn
+
+    def register_pending_fn(self, fn):
+        """注入 HMR.queue_pending；洞察写入失败时保留待处理记录"""
+        self._pending_fn = fn
 
     # ── 创建和管理 ─────────────────────────────────────────────────────────
 
@@ -529,7 +534,22 @@ class ThoughtChainEngine:
                     }
                 )
             except Exception as e:
-                print(f"[ThoughtChain] 洞察存储失败: {e}")
+                # 链已 CLOSED，洞察不能只打印后丢失：登记 Pending 供重试恢复
+                if self._pending_fn and result.suggested_memory:
+                    try:
+                        self._pending_fn(
+                            content=result.suggested_memory,
+                            memory_type="reflection",
+                            title=f"[链洞察] {chain.goal[:30]}",
+                            metadata={
+                                "tags": ["thought_chain", "reflection", "insight"],
+                                "confidence": result.accuracy,
+                                "runtime_dependencies": [chain.goal],
+                            },
+                        )
+                    except Exception:
+                        pass
+                print(f"[ThoughtChain] 洞察存储失败，已登记待处理: {e}")
 
         return result
 
