@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.1.0 — 2026-11-21
+借鉴 MemoraX Code 的记忆边界与写入治理，详见 `docs/MEMORAX_BORROW_PLAN.md`：
+- MemoryObject 新增 boundary/scope/status/source/evidence/metadata，旧数据免迁移
+- `CODE_AGENT_MEMORY` 结构化记忆卡 + 已验证门槛（未验证正面经验被拒）
+- 个人记忆层：User Profile 偏好、Procedure 流程主题、首轮 + 5 轮 cadence 注入
+- 本地 Trace：JSONL / event_id 去重 / 脱敏 / 7 天保留，失败不影响主链路
+
 ## v2.0.0 — 2026-06
 新增三大认知智能引擎：
 - ThoughtChain Engine — 显式推理链 + 反思循环

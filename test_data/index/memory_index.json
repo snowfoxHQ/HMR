@@ -28,5 +28,10 @@
     "type": "concept",
     "path": "test_data\\memories\\concepts\\mem_229df4fa.json",
     "updated_at": "2026-11-20T21:29:00.384250"
+  },
+  "mem_3a40369f": {
+    "type": "concept",
+    "path": "test_data\\memories\\concepts\\mem_3a40369f.json",
+    "updated_at": "2026-11-20T21:31:25.318088"
   }
 }

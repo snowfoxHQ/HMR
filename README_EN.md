@@ -37,6 +37,17 @@ Built on top of v1.5 (Scheduler / JIT / Lifecycle / MemoryGraph), v2.0 adds thre
 | **Memory Policy** | Strategy learning (store / recall / forget) | Gets more accurate the more you use it |
 | **Self-Evolution** | Pattern detection + knowledge abstraction + contradiction resolution | Memory base self-optimises, never bloats |
 
+### New in v2.1: Memory Governance for Coding Agents
+
+Borrowed from MemoraX Code without changing the existing retrieval and evolution algorithms ([plan](docs/MEMORAX_BORROW_PLAN.md)):
+
+| Capability | What it does | Core value |
+|------------|-------------|------------|
+| **Memory boundaries** | coding/repo/user/procedure + project/user scope | Layered memory with boundary-filtered recall |
+| **Structured memory card** | `CODE_AGENT_MEMORY` 11 fields + verification gate | Unverified positive lessons are rejected |
+| **Personal memory** | User Profile + Procedure topics + cadence injection | Collaboration preferences carry across tasks |
+| **Local trace** | JSONL / event_id dedupe / redaction / 7-day retention | Diagnosable recall and writes, zero main-path impact |
+
 ---
 
 ## 5-Minute Quick Start
@@ -116,11 +127,20 @@ HMR v2.0
 │   ├── scheduler.py       Strategy scheduling + hot-cache      — v1.5
 │   ├── thought_chain.py   Reasoning chains + reflection loops  — v2.0 ★
 │   ├── policy.py          Store/recall/forget strategy learning — v2.0 ★
-│   └── evolution.py       Self-evolution engine                — v2.0 ★
+│   ├── evolution.py       Self-evolution engine                — v2.0 ★
+│   └── memory_card.py     CODE_AGENT_MEMORY card               — v2.1 ★
 │
 ├── storage/
 │   ├── memory_fs.py       Filesystem storage (atomic writes)
 │   └── vector_store.py    Vector index (persisted)
+│
+├── personal/              Personal memory layer               — v2.1 ★
+│   ├── profile.py         User Profile preferences
+│   ├── procedure.py       Procedure topic files
+│   └── context.py         Cadence injection + context building
+│
+├── observability/         Local trace                         — v2.1 ★
+│   └── trace.py           JSONL / dedupe / redaction / retention
 │
 └── graph/
     ├── cwg.py             Cognitive workspace graph (runtime deps)
@@ -159,8 +179,14 @@ hmr.feedback(event_type, memory_ids, signal, query, strategy)
 # ── v2.0 Evolution ───────────────────────────────────────────
 hmr.evolve(dry_run=False)
 
+# ── v2.1 Boundaries and personal memory ──────────────────────
+hmr.ingest(content, boundary="coding")   # coding/repo/user/procedure
+hmr.recall(query, boundaries=["user"])   # filter by boundary
+hmr.ingest_card(card_text)               # structured card + verification gate
+hmr.personal_context(turn=1)             # profile + procedure injection
+
 # ── System status ────────────────────────────────────────────
-hmr.get_system_status()
+hmr.get_system_status()                   # includes trace stats
 ```
 
 ---
@@ -169,6 +195,7 @@ hmr.get_system_status()
 
 | Version | Highlights |
 |---------|-----------|
+| **v2.1** | Memory boundaries / structured cards / personal memory / local trace (borrowed from MemoraX Code) |
 | **v2.0** | ThoughtChain / Policy / Evolution — three cognitive intelligence engines |
 | **v1.5** | JIT Compiler / Scheduler / Lifecycle / Memory Graph |
 | **v1.1** | VectorStore persistence / SM-2 forgetting curve / Workspace persistence |

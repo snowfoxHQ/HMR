@@ -37,6 +37,17 @@ HMR:    记忆 = 持续认知运行时
 | **Memory Policy** | 策略学习（存/取/忘） | 越用越准，中英文均适用 |
 | **Self-Evolution** | 模式识别 + 知识抽象 + 矛盾解决 | 记忆库自我优化，不再无限膨胀 |
 
+### v2.1 新增：面向编码 Agent 的记忆治理
+
+借鉴 MemoraX Code 的机制，不改动原有检索与演化算法（[方案](docs/MEMORAX_BORROW_PLAN.md)）：
+
+| 能力 | 做什么 | 核心价值 |
+|------|--------|---------|
+| **记忆边界** | coding/repo/user/procedure 四类 + project/user 作用域 | 不同用途的记忆分层管理、按边界过滤召回 |
+| **结构化记忆卡** | `CODE_AGENT_MEMORY` 11 字段 + 已验证门槛 | 未验证的正面经验不得入库 |
+| **个人记忆层** | User Profile 偏好 + Procedure 流程主题 + cadence 注入 | 跨任务的协作偏好与操作规范得以延续 |
+| **本地 Trace** | JSONL / event_id 去重 / 脱敏 / 7 天保留 | 可诊断召回与写入，失败不影响主链路 |
+
 ---
 
 ## 5 分钟快速开始
@@ -112,11 +123,20 @@ HMR v2.0
 │   ├── scheduler.py       策略调度 + 热缓存        ─ v1.5
 │   ├── thought_chain.py   推理链 + 反思循环        ─ v2.0 ★
 │   ├── policy.py          存/取/忘策略学习         ─ v2.0 ★
-│   └── evolution.py       自我演化引擎             ─ v2.0 ★
+│   ├── evolution.py       自我演化引擎             ─ v2.0 ★
+│   └── memory_card.py     CODE_AGENT_MEMORY 卡片    ─ v2.1 ★
 │
 ├── storage/
 │   ├── memory_fs.py       文件系统存储（原子写入）
 │   └── vector_store.py    向量索引（持久化）
+│
+├── personal/              个人记忆层              ─ v2.1 ★
+│   ├── profile.py         User Profile 偏好画像
+│   ├── procedure.py       Procedure 流程主题
+│   └── context.py         注入节奏与上下文构建
+│
+├── observability/         本地 Trace              ─ v2.1 ★
+│   └── trace.py           JSONL / 去重 / 脱敏 / 保留期
 │
 └── graph/
     ├── cwg.py             认知工作图（运行时依赖）
@@ -155,8 +175,14 @@ hmr.feedback(event_type, memory_ids, signal, query, strategy)
 # ── v2.0 Evolution ───────────────────────────────────────────
 hmr.evolve(dry_run=False)
 
+# ── v2.1 记忆边界与个人记忆 ──────────────────────────────────
+hmr.ingest(content, boundary="coding")   # coding/repo/user/procedure
+hmr.recall(query, boundaries=["user"])   # 按边界过滤
+hmr.ingest_card(card_text)               # 结构化记忆卡 + 验证门槛
+hmr.personal_context(turn=1)             # 画像 + 流程注入
+
 # ── 系统状态 ─────────────────────────────────────────────────
-hmr.get_system_status()
+hmr.get_system_status()                   # 含 trace 统计
 ```
 
 ---
@@ -165,6 +191,7 @@ hmr.get_system_status()
 
 | 版本 | 核心内容 |
 |------|---------|
+| **v2.1** | 记忆边界 / 结构化记忆卡 / 个人记忆层 / 本地 Trace（借鉴 MemoraX Code） |
 | **v2.0** | ThoughtChain / Policy / Evolution 三大认知引擎 |
 | **v1.5** | JIT Compiler / Scheduler / Lifecycle / Memory Graph |
 | **v1.1** | VectorStore 持久化 / SM-2 遗忘曲线 / Workspace 持久化 |
