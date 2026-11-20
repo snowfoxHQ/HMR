@@ -27,15 +27,19 @@ HMR:          Memory = Persistent Cognitive Runtime
 
 ---
 
-## What's New in v2.0
+## What's New
 
-Built on top of v1.5 (Scheduler / JIT / Lifecycle / MemoryGraph), v2.0 adds three cognitive intelligence layers:
+Latest version first, so the newest changes are visible at a glance.
 
-| Engine | What it does | Core value |
-|--------|-------------|------------|
-| **ThoughtChain** | Explicit reasoning chains + reflection loops | AI can trace back *why* it made a decision |
-| **Memory Policy** | Strategy learning (store / recall / forget) | Gets more accurate the more you use it |
-| **Self-Evolution** | Pattern detection + knowledge abstraction + contradiction resolution | Memory base self-optimises, never bloats |
+### New in v2.2: Write Reliability
+
+Added from the automatic-writeback test audit, without extending the architecture:
+
+| Capability | What it does | Core value |
+|------------|-------------|------------|
+| **Storage consistency** | File-first writes with rollback, orphan-vector cleanup, three-store deletion | No one-sided residue between vectors and memory files |
+| **Write trust** | Source identity binding, workspace validation, pre-write redaction, single-process idempotency | Content has an owner; retries do not duplicate memories |
+| **Write recovery** | Pending states, error-classified backoff, restart recovery, insight compensation | Failed writes can retry; reasoning insights are no longer lost |
 
 ### New in v2.1: Memory Governance for Coding Agents
 
@@ -48,15 +52,15 @@ Borrowed from MemoraX Code without changing the existing retrieval and evolution
 | **Personal memory** | User Profile + Procedure topics + cadence injection | Collaboration preferences carry across tasks |
 | **Local trace** | JSONL / event_id dedupe / redaction / 7-day retention | Diagnosable recall and writes, zero main-path impact |
 
-### New in v2.2: Write Reliability
+### New in v2.0: Three Cognitive Intelligence Layers
 
-Added from the automatic-writeback test audit, without extending the architecture:
+Built on top of v1.5 (Scheduler / JIT / Lifecycle / MemoryGraph), v2.0 adds three cognitive intelligence layers:
 
-| Capability | What it does | Core value |
-|------------|-------------|------------|
-| **Storage consistency** | File-first writes with rollback, orphan-vector cleanup, three-store deletion | No one-sided residue between vectors and memory files |
-| **Write trust** | Source identity binding, workspace validation, pre-write redaction, single-process idempotency | Content has an owner; retries do not duplicate memories |
-| **Write recovery** | Pending states, error-classified backoff, restart recovery, insight compensation | Failed writes can retry; reasoning insights are no longer lost |
+| Engine | What it does | Core value |
+|--------|-------------|------------|
+| **ThoughtChain** | Explicit reasoning chains + reflection loops | AI can trace back *why* it made a decision |
+| **Memory Policy** | Strategy learning (store / recall / forget) | Gets more accurate the more you use it |
+| **Self-Evolution** | Pattern detection + knowledge abstraction + contradiction resolution | Memory base self-optimises, never bloats |
 
 ---
 
