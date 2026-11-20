@@ -88,10 +88,15 @@ class MemoryLifecycleEngine:
         self._lock = threading.Lock()
         self._ingest_counter = 0
         self._compress_fn: Optional[Callable] = None  # 注入 hmr.compress_memories
+        self._delete_fn: Optional[Callable] = None    # 注入 hmr.delete_memory（同步向量）
 
     def register_compress_fn(self, fn: Callable):
         """注入压缩函数（避免循环引用）"""
         self._compress_fn = fn
+
+    def register_delete_fn(self, fn: Callable):
+        """注入统一删除函数，保证剪枝时向量与索引同步清理"""
+        self._delete_fn = fn
 
     def on_ingest(self, new_memory: MemoryObject) -> Optional[LifecycleReport]:
         """
@@ -162,7 +167,8 @@ class MemoryLifecycleEngine:
 
             if r < self.config.prune_retrievability:
                 # 执行删除
-                deleted = self.memory_fs.delete_memory(mem.id)
+                delete_fn = self._delete_fn or self.memory_fs.delete_memory
+                deleted = delete_fn(mem.id)
                 if deleted:
                     pruned_ids.append(mem.id)
                     report.pruned_count += 1
