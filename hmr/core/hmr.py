@@ -13,6 +13,7 @@ v2.0  认知智能层：
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
+import hashlib
 import os
 
 from .models import (
@@ -31,6 +32,8 @@ from ..engines.memory_card    import MemoryCardEngine
 from ..engines.evolution      import SelfEvolutionEngine
 from ..storage.memory_fs      import MemoryFS
 from ..storage.vector_store   import VectorStore
+from ..storage.idempotency    import IdempotencyStore
+from ..security.redaction     import redact_content
 from ..personal               import PersonalMemoryContext
 from ..observability          import TraceStore
 from ..graph.cwg              import CognitiveWorkspaceGraph
@@ -69,9 +72,13 @@ class HMR:
         personal_home: Optional[str] = None,
         trace_enabled: bool = True,
         trace_config: Optional[Dict[str, Any]] = None,
+        workspace_id: Optional[str] = None,
+        redact_on_ingest: bool = True,
     ):
         self.storage_path = storage_path
         self._llm_api_key = llm_api_key
+        self.workspace_id = workspace_id or Path(storage_path).name
+        self.redact_on_ingest = redact_on_ingest
 
         # v2.1 P2：个人记忆层，默认随 storage_path 落盘，不污染用户主目录
         self.personal = PersonalMemoryContext(
@@ -89,6 +96,9 @@ class HMR:
             self.trace = TraceStore(
                 str(Path(storage_path) / "traces"), enabled=False
             )
+
+        # v2.2 S2：写入幂等（单 Runtime / 单进程边界）
+        self.idempotency = IdempotencyStore(storage_path)
 
         # ── 存储层 ────────────────────────────────────────────────────────────
         self.memory_fs = MemoryFS(storage_path)
@@ -230,6 +240,38 @@ class HMR:
             # 卡片的 status/evidence 优先，调用方无法通过 metadata 绕过验证门槛
             meta = {**meta, **card_kwargs["metadata"]}
 
+        # v2.2 S2：写入前脱敏（先脱敏再计算指纹，落盘内容不含敏感片段）
+        if self.redact_on_ingest:
+            content = redact_content(content)
+            if title:
+                title = redact_content(title)
+
+        # v2.2 S2：来源身份与工作区作用域绑定
+        for key in (
+            "source_client", "source_session_id",
+            "source_turn_id", "source_workspace",
+        ):
+            if key in meta and meta[key] is not None:
+                meta[key] = str(meta[key])
+        meta.setdefault("source_timestamp", datetime.utcnow().isoformat())
+        if meta.get("source_workspace") and meta["source_workspace"] != self.workspace_id:
+            raise ValueError(
+                f"来源工作区不匹配：{meta['source_workspace']!r} != {self.workspace_id!r}"
+            )
+        meta["source_hash"] = hashlib.sha256(
+            content.encode("utf-8")
+        ).hexdigest()[:16]
+
+        # v2.2 S2：幂等占位，命中时直接返回已存在的记忆
+        idem_key = self.idempotency.make_key(meta.get("source_turn_id", ""), content)
+        duplicate_id = self.idempotency.check_and_reserve(idem_key)
+        if duplicate_id:
+            existing = self.memory_fs.read_memory(duplicate_id)
+            if existing is not None:
+                return existing
+            # 占位记录指向的记忆已不存在，释放后正常重写
+            self.idempotency.release(idem_key)
+
         # Policy 驱动模式
         if use_policy:
             ctx = {
@@ -243,7 +285,8 @@ class HMR:
                 ctx["existing_memory_count"]
             )
             if not policy_decision["should_store"]:
-                # Policy 认为不值得存，创建一个临时对象返回（不实际存储）
+                # Policy 认为不值得存：释放幂等占位，允许后续重试
+                self.idempotency.release(idem_key)
                 return MemoryObject(
                     type="concept", title=title or "跳过", content=content,
                     semantic_summary=f"[Policy跳过] {policy_decision['reasoning']}"
@@ -299,7 +342,11 @@ class HMR:
         self._mem_lang = getattr(self, "_mem_lang", {})
         self._mem_lang[memory.id] = lang
 
-        self.semantic_engine.store(memory)
+        try:
+            self.semantic_engine.store(memory)
+        except Exception:
+            self.idempotency.release(idem_key)
+            raise
         self.temporal_engine.create_temporal_state(memory)
 
         if self.current_runtime:
@@ -327,6 +374,7 @@ class HMR:
         except Exception:
             pass
 
+        self.idempotency.mark(idem_key, memory.id)
         return memory
 
     # =========================================================================

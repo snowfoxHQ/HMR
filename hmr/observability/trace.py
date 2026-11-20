@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from ..security.redaction import redact_sensitive_text
+
 SCHEMA_VERSION = "hmr_trace.v1"
 SENSITIVE_KEYS = (
     "authorization", "api-key", "api_key", "apikey",
@@ -62,8 +64,11 @@ def sanitize_trace_value(value: Any, capture_content: bool = True, max_chars: in
         return out
     if isinstance(value, (list, tuple)):
         return [sanitize_trace_value(v, True, max_chars) for v in value]
-    if isinstance(value, str) and len(value) > max_chars:
-        return value[:max_chars] + "[truncated]"
+    if isinstance(value, str):
+        # 先脱敏再截断，避免敏感片段跨截断边界泄漏
+        value = redact_sensitive_text(value)
+        if len(value) > max_chars:
+            return value[:max_chars] + "[truncated]"
     return value
 
 
