@@ -13,5 +13,10 @@
     "type": "concept",
     "path": "test_data\\memories\\concepts\\mem_dea11be2.json",
     "updated_at": "2026-11-20T21:19:01.678596"
+  },
+  "mem_02675b7a": {
+    "type": "concept",
+    "path": "test_data\\memories\\concepts\\mem_02675b7a.json",
+    "updated_at": "2026-11-20T21:20:52.399385"
   }
 }

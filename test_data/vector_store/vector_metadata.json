@@ -18,5 +18,13 @@
     "temporal_weight": 1.0,
     "boundary": "coding",
     "scope": "project"
+  },
+  "mem_02675b7a": {
+    "type": "concept",
+    "title": "IPC ‘≠‘Ú",
+    "tags": [],
+    "temporal_weight": 1.0,
+    "boundary": "coding",
+    "scope": "project"
   }
 }

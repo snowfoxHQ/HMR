@@ -26,6 +26,7 @@ from ..engines.lifecycle      import MemoryLifecycleEngine, LifecycleConfig
 from ..engines.scheduler      import MemoryScheduler, RecallStrategy
 from ..engines.thought_chain  import ThoughtChainEngine, ThoughtType, ThoughtChain
 from ..engines.policy         import MemoryPolicyEngine
+from ..engines.memory_card    import MemoryCardEngine
 from ..engines.evolution      import SelfEvolutionEngine
 from ..storage.memory_fs      import MemoryFS
 from ..storage.vector_store   import VectorStore
@@ -119,6 +120,9 @@ class HMR:
         self.evolution.register_ingest_fn(self.ingest)
         self.evolution.register_llm_fn(self._summarize_with_llm)
 
+        # v2.1 新增：结构化记忆卡引擎（MemoraX 借鉴 P1）
+        self.memory_card = MemoryCardEngine()
+
         # ── 代理工作区 ────────────────────────────────────────────────────────
         self.workspaces: Dict[str, AgentWorkspace] = {}
         self._load_workspaces()
@@ -174,6 +178,25 @@ class HMR:
         - boundary/scope/status/evidence/source 结构化落盘
         """
         meta = dict(metadata or {})
+
+        # v2.1 P1：CODE_AGENT_MEMORY 自动识别与验证门槛
+        if self.memory_card.is_card(content):
+            card = self.memory_card.parse(content)
+            if card is None:
+                raise ValueError("CODE_AGENT_MEMORY 卡片格式无法解析")
+            card_check = self.memory_card.validate(card)
+            if not card_check.ok:
+                raise ValueError(
+                    "CODE_AGENT_MEMORY 校验失败: " + "; ".join(card_check.errors)
+                )
+            card_kwargs = self.memory_card.to_memory_kwargs(card)
+            content = card_kwargs["content"]
+            title = title or card_kwargs["title"]
+            if memory_type == "concept":
+                memory_type = card_kwargs["memory_type"]
+            boundary = boundary or card_kwargs["boundary"]
+            # 卡片的 status/evidence 优先，调用方无法通过 metadata 绕过验证门槛
+            meta = {**meta, **card_kwargs["metadata"]}
 
         # Policy 驱动模式
         if use_policy:
@@ -259,6 +282,45 @@ class HMR:
         self.lifecycle.on_ingest(memory)
 
         return memory
+
+    # =========================================================================
+    # ingest_card（v2.1：结构化记忆卡）
+    # =========================================================================
+
+    def ingest_card(
+        self,
+        card_text: str,
+        *,
+        strict: bool = True,
+        memory_type: Optional[str] = None,
+        use_policy: bool = False,
+        metadata: Optional[Dict[str, Any]] = None,
+        **kwargs,
+    ) -> MemoryObject:
+        """
+        摄入一张 CODE_AGENT_MEMORY 卡片。
+
+        strict=True（默认）时，未验证的正面经验会被拒绝，
+        这是从 MemoraX 借鉴的核心写入纪律。
+        """
+        card = self.memory_card.parse(card_text)
+        if card is None:
+            raise ValueError("不是合法的 CODE_AGENT_MEMORY 卡片")
+        result = self.memory_card.validate(card)
+        if not result.ok:
+            if strict:
+                raise ValueError(
+                    "CODE_AGENT_MEMORY 校验失败: " + "; ".join(result.errors)
+                )
+            # 宽松模式：降级为 candidate，避免未验证经验伪装成 verified
+            card.status = "candidate"
+        options = self.memory_card.to_memory_kwargs(card)
+        if memory_type:
+            options["memory_type"] = memory_type
+        if metadata:
+            options["metadata"] = {**options["metadata"], **metadata}
+        options.update(kwargs)
+        return self.ingest(use_policy=use_policy, **options)
 
     # =========================================================================
     # recall（v2.0：Policy 融合）
