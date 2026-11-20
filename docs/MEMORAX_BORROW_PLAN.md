@@ -2,7 +2,7 @@
 
 > 分析对象：`memorax-code-main.zip`（MIT，TypeScript/Node，809 文件）
 > 结论日期：2026-11-21
-> 状态：P0–P3 实施中，P4/P5 暂缓
+> 状态：P0–P3 已完成（2026-11-21），P4/P5 暂缓
 
 ## 一句话原则
 
@@ -27,10 +27,10 @@
 
 | 阶段 | 内容 | 估算 | 状态 |
 |---|---|---|---|
-| P0 | `MemoryObject` 增加 `boundary/scope/source/evidence/status`；`ingest()` 透传完整 metadata；Policy 增加边界判定 | 1.5 人日 | 进行中 |
-| P1 | `hmr/engines/memory_card.py`：11 字段解析/渲染/校验 + 验证门槛 | 2 人日 | 待开始 |
-| P2 | `hmr/personal/`：`profile.py` / `procedure.py` / `context.py`，首轮 + 5 轮 cadence | 3 人日 | 待开始 |
-| P3 | `hmr/observability/trace.py`：JSONL、event_id 去重、metadata-only、脱敏、保留期 | 2 人日 | 待开始 |
+| P0 | `MemoryObject` 增加 `boundary/scope/source/evidence/status`；`ingest()` 透传完整 metadata；Policy 增加边界判定 | 1.5 人日 | 已完成 |
+| P1 | `hmr/engines/memory_card.py`：11 字段解析/渲染/校验 + 验证门槛 | 2 人日 | 已完成 |
+| P2 | `hmr/personal/`：`profile.py` / `procedure.py` / `context.py`，首轮 + 5 轮 cadence | 3 人日 | 已完成 |
+| P3 | `hmr/observability/trace.py`：JSONL、event_id 去重、metadata-only、脱敏、保留期 | 2 人日 | 已完成 |
 | P4 | Repo Memory 轻量版（仅本地 git，需先确认 HKC 边界） | 3–4 人日 | 暂缓 |
 | P5 | 自动写回（需先确认 turn 源） | 3–5 人日 | 暂缓 |
 

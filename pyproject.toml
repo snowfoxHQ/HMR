@@ -34,6 +34,7 @@ packages = [
     "hmr.storage",
     "hmr.graph",
     "hmr.personal",
+    "hmr.observability",
 ]
 
 [tool.black]

@@ -32,6 +32,7 @@ from ..engines.evolution      import SelfEvolutionEngine
 from ..storage.memory_fs      import MemoryFS
 from ..storage.vector_store   import VectorStore
 from ..personal               import PersonalMemoryContext
+from ..observability          import TraceStore
 from ..graph.cwg              import CognitiveWorkspaceGraph
 from ..graph.memory_graph     import MemoryGraph
 
@@ -66,6 +67,8 @@ class HMR:
         llm_api_key: Optional[str] = None,
         lifecycle_config: Optional[LifecycleConfig] = None,
         personal_home: Optional[str] = None,
+        trace_enabled: bool = True,
+        trace_config: Optional[Dict[str, Any]] = None,
     ):
         self.storage_path = storage_path
         self._llm_api_key = llm_api_key
@@ -74,6 +77,18 @@ class HMR:
         self.personal = PersonalMemoryContext(
             personal_home or str(Path(storage_path) / "personal-memory")
         )
+
+        # v2.1 P3：本地 trace；初始化失败不能阻断运行时
+        try:
+            self.trace = TraceStore(
+                str(Path(storage_path) / "traces"),
+                enabled=trace_enabled,
+                **(trace_config or {}),
+            )
+        except Exception:
+            self.trace = TraceStore(
+                str(Path(storage_path) / "traces"), enabled=False
+            )
 
         # ── 存储层 ────────────────────────────────────────────────────────────
         self.memory_fs = MemoryFS(storage_path)
@@ -289,6 +304,20 @@ class HMR:
         # v2.0：通知 Policy 记录这次摄入
         self.lifecycle.on_ingest(memory)
 
+        # v2.1 P3：trace（失败不影响主链路）
+        try:
+            self.trace.emit(
+                "memory_ingest",
+                ok=True,
+                outcome=memory.id,
+                trace=str(meta.get("trace_id", "")),
+                request={"title": memory.title, "type": memory_type, "boundary": bd},
+                response={"id": memory.id, "status": memory.status},
+                related_turns=list(meta.get("related_turns", []) or []),
+            )
+        except Exception:
+            pass
+
         return memory
 
     # =========================================================================
@@ -380,6 +409,15 @@ class HMR:
         cached = self.scheduler.get_from_cache(cache_key)
         if cached:
             cached = self._filter_by_boundary(cached, boundaries)
+            try:
+                self.trace.emit(
+                    "memory_retrieve", ok=True, outcome="cache",
+                    trace=str((context or {}).get("trace_id", "")),
+                    request={"query": query, "top_k": top_k, "boundaries": boundaries},
+                    response={"count": len(cached)},
+                )
+            except Exception:
+                pass
             return RecallResult(
                 memory_objects=cached,
                 recall_reasoning=f"[Cache] {plan.reasoning}",
@@ -420,6 +458,16 @@ class HMR:
 
         memories = self._apply_lang_filter(query, memories)
         memories = self._filter_by_boundary(memories, boundaries)
+
+        try:
+            self.trace.emit(
+                "memory_retrieve", ok=True, outcome=str(plan.strategy.value),
+                trace=str((context or {}).get("trace_id", "")),
+                request={"query": query, "top_k": top_k, "boundaries": boundaries},
+                response={"count": len(memories), "ids": [m.id for m in memories]},
+            )
+        except Exception:
+            pass
 
         return RecallResult(
             memory_objects=memories,
@@ -686,6 +734,10 @@ class HMR:
         graph_stats     = self.memory_graph.get_stats()
         scheduler_stats = self.scheduler.get_stats()
         overdue         = self.temporal_engine.get_forgetting_schedule()
+        try:
+            trace_stats = self.trace.stats()
+        except Exception:
+            trace_stats = {"enabled": False, "events": 0}
 
         return {
             "version":          self.VERSION,
@@ -699,6 +751,8 @@ class HMR:
             "thought_chain":    self.thought_chain.get_stats(),
             "policy":           self.policy.get_stats(),
             "evolution":        self.evolution.get_stats(),
+            # v2.1 新增
+            "trace":            trace_stats,
             # 通用
             "active_runtime":   self.current_runtime.runtime_id if self.current_runtime else None,
             "active_workspaces":len(self.workspaces),
