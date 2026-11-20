@@ -12,6 +12,7 @@ v2.0  认知智能层：
 
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from pathlib import Path
 import os
 
 from .models import (
@@ -30,6 +31,7 @@ from ..engines.memory_card    import MemoryCardEngine
 from ..engines.evolution      import SelfEvolutionEngine
 from ..storage.memory_fs      import MemoryFS
 from ..storage.vector_store   import VectorStore
+from ..personal               import PersonalMemoryContext
 from ..graph.cwg              import CognitiveWorkspaceGraph
 from ..graph.memory_graph     import MemoryGraph
 
@@ -63,9 +65,15 @@ class HMR:
         embedding_model: str = "text-embedding-3-small",
         llm_api_key: Optional[str] = None,
         lifecycle_config: Optional[LifecycleConfig] = None,
+        personal_home: Optional[str] = None,
     ):
         self.storage_path = storage_path
         self._llm_api_key = llm_api_key
+
+        # v2.1 P2：个人记忆层，默认随 storage_path 落盘，不污染用户主目录
+        self.personal = PersonalMemoryContext(
+            personal_home or str(Path(storage_path) / "personal-memory")
+        )
 
         # ── 存储层 ────────────────────────────────────────────────────────────
         self.memory_fs = MemoryFS(storage_path)
@@ -321,6 +329,14 @@ class HMR:
             options["metadata"] = {**options["metadata"], **metadata}
         options.update(kwargs)
         return self.ingest(use_policy=use_policy, **options)
+
+    # =========================================================================
+    # personal_context（v2.1：个人记忆注入）
+    # =========================================================================
+
+    def personal_context(self, turn: int = 1, **kwargs) -> str:
+        """构建可注入的个人记忆上下文（首轮画像 + cadence 流程提醒）。"""
+        return self.personal.build(turn, **kwargs)
 
     # =========================================================================
     # recall（v2.0：Policy 融合）

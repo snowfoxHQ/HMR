@@ -33,6 +33,7 @@ packages = [
     "hmr.engines",
     "hmr.storage",
     "hmr.graph",
+    "hmr.personal",
 ]
 
 [tool.black]
