@@ -161,33 +161,67 @@ class HMR:
         title: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
         use_policy: bool = False,   # 是否用 Policy 自动决定类型和置信度
+        boundary: Optional[str] = None,
+        scope: Optional[str] = None,
     ) -> MemoryObject:
         """
         摄入记忆。
 
         v2.0 新增：
         - use_policy=True 时，Policy 自动推断 memory_type 和 confidence
+        v2.1 新增（MemoraX 借鉴 P0）：
+        - 完整保留 metadata，不再丢弃未知字段
+        - boundary/scope/status/evidence/source 结构化落盘
         """
+        meta = dict(metadata or {})
+
         # Policy 驱动模式
         if use_policy:
             ctx = {
                 "title": title,
-                "tags": (metadata or {}).get("tags", []),
-                "runtime_dependencies": (metadata or {}).get("runtime_dependencies", []),
+                "tags": meta.get("tags", []),
+                "runtime_dependencies": meta.get("runtime_dependencies", []),
                 "existing_memory_count": len(self.vector_store.vectors),
             }
-            decision = self.policy.decide_ingest(content, title, ctx.get("tags"), ctx.get("runtime_dependencies"), ctx["existing_memory_count"])
-            if not decision["should_store"]:
+            policy_decision = self.policy.decide_ingest(
+                content, title, ctx["tags"], ctx["runtime_dependencies"],
+                ctx["existing_memory_count"]
+            )
+            if not policy_decision["should_store"]:
                 # Policy 认为不值得存，创建一个临时对象返回（不实际存储）
                 return MemoryObject(
                     type="concept", title=title or "跳过", content=content,
-                    semantic_summary=f"[Policy跳过] {decision['reasoning']}"
+                    semantic_summary=f"[Policy跳过] {policy_decision['reasoning']}"
                 )
-            memory_type = memory_type if memory_type != "concept" else decision["memory_type"]
-            if metadata is None:
-                metadata = {}
-            if "confidence" not in metadata:
-                metadata["confidence"] = decision["confidence"]
+            memory_type = (
+                memory_type if memory_type != "concept"
+                else policy_decision["memory_type"]
+            )
+            meta.setdefault("confidence", policy_decision["confidence"])
+
+        # 边界路由：显式参数 > metadata > 规则推断
+        bd = boundary or meta.get("boundary")
+        sc = scope or meta.get("scope")
+        if bd is None or sc is None:
+            boundary_decision = self.policy.decide_boundary(
+                content, title, memory_type, meta.get("tags")
+            )
+            bd = bd or boundary_decision["boundary"]
+            sc = sc or boundary_decision["scope"]
+        if bd not in ("coding", "repo", "user", "procedure"):
+            bd = "coding"
+        if sc not in ("project", "user", "global"):
+            sc = "project"
+        status = meta.get("status", "active")
+        if status not in ("active", "candidate", "verified", "superseded", "deleted"):
+            status = "active"
+
+        # 语言检测提前到写盘前，确保 lang 真正持久化（旧版是死代码）
+        lang = detect_lang((title or "") + " " + content)
+        meta.setdefault("lang", lang)
+        evidence = meta.get("evidence", []) or []
+        if isinstance(evidence, str):
+            evidence = [evidence]
 
         summary = self._generate_summary(content, title)
         memory = MemoryObject(
@@ -195,12 +229,20 @@ class HMR:
             title=title or f"{memory_type.title()} {datetime.utcnow().strftime('%H:%M')}",
             content=content,
             semantic_summary=summary,
+            boundary=bd,
+            scope=sc,
+            status=status,
+            source=str(meta.get("source", "agent")),
+            evidence=list(evidence),
+            metadata=meta,
         )
 
-        if metadata:
-            for key in ["tags", "runtime_dependencies", "linked_memories", "confidence"]:
-                if key in metadata:
-                    setattr(memory, key, metadata[key])
+        for key in ["tags", "runtime_dependencies", "linked_memories", "confidence"]:
+            if key in meta:
+                setattr(memory, key, meta[key])
+
+        self._mem_lang = getattr(self, "_mem_lang", {})
+        self._mem_lang[memory.id] = lang
 
         self.semantic_engine.store(memory)
         self.temporal_engine.create_temporal_state(memory)
@@ -210,16 +252,6 @@ class HMR:
 
         try:
             self.memory_graph.add_from_memory(memory)
-        except Exception:
-            pass
-
-        # 自动检测并记录语言（用于按语言过滤召回）
-        lang = detect_lang((memory.title or "") + " " + memory.content)
-        self._mem_lang = getattr(self, "_mem_lang", {})
-        self._mem_lang[memory.id] = lang
-        try:
-            if hasattr(memory, "metadata") and isinstance(memory.metadata, dict):
-                memory.metadata["lang"] = lang
         except Exception:
             pass
 
@@ -239,6 +271,7 @@ class HMR:
         top_k: int = 5,
         strategy: Optional[str] = None,
         use_policy: bool = True,    # 是否用 Policy 辅助调度决策
+        boundaries: Optional[List[str]] = None,  # 按记忆边界过滤
     ) -> RecallResult:
         """
         召回记忆。
@@ -262,9 +295,13 @@ class HMR:
 
         plan = self.scheduler.schedule(query, context, hint=strategy)
 
-        cache_key = f"{query}|{context.get('active_goal', '')}|{plan.top_k}"
+        cache_key = (
+            f"{query}|{context.get('active_goal', '')}|{plan.top_k}"
+            f"|{','.join(sorted(boundaries or []))}"
+        )
         cached = self.scheduler.get_from_cache(cache_key)
         if cached:
+            cached = self._filter_by_boundary(cached, boundaries)
             return RecallResult(
                 memory_objects=cached,
                 recall_reasoning=f"[Cache] {plan.reasoning}",
@@ -304,6 +341,7 @@ class HMR:
             self.scheduler.put_to_cache(cache_key, memories)
 
         memories = self._apply_lang_filter(query, memories)
+        memories = self._filter_by_boundary(memories, boundaries)
 
         return RecallResult(
             memory_objects=memories,
@@ -593,6 +631,14 @@ class HMR:
     # =========================================================================
     # 辅助方法
     # =========================================================================
+
+    @staticmethod
+    def _filter_by_boundary(memories, boundaries):
+        """按四类记忆边界过滤；旧记忆缺省 boundary=coding。"""
+        if not boundaries:
+            return memories
+        allowed = set(boundaries)
+        return [m for m in memories if getattr(m, "boundary", "coding") in allowed]
 
     def _apply_lang_filter(self, query, memories):
         """按 HMR_LANG_FILTER 过滤召回语言。off(默认)=不过滤；auto=按查询语言；zh/en=强制。"""

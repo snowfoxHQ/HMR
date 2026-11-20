@@ -8,5 +8,10 @@
     "type": "concept",
     "path": "test_data\\memories\\concepts\\mem_58cbbd5f.json",
     "updated_at": "2026-11-20T21:16:50.866998"
+  },
+  "mem_dea11be2": {
+    "type": "concept",
+    "path": "test_data\\memories\\concepts\\mem_dea11be2.json",
+    "updated_at": "2026-11-20T21:19:01.678596"
   }
 }

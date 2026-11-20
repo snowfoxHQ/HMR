@@ -50,7 +50,9 @@ class SemanticMemoryEngine:
                 "type": memory.type,
                 "title": memory.title,
                 "tags": memory.tags,
-                "temporal_weight": memory.temporal_weight
+                "temporal_weight": memory.temporal_weight,
+                "boundary": getattr(memory, "boundary", "coding"),
+                "scope": getattr(memory, "scope", "project"),
             }
         )
         

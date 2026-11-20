@@ -10,5 +10,13 @@
     "title": "IPC 原则",
     "tags": [],
     "temporal_weight": 1.0
+  },
+  "mem_dea11be2": {
+    "type": "concept",
+    "title": "IPC 原则",
+    "tags": [],
+    "temporal_weight": 1.0,
+    "boundary": "coding",
+    "scope": "project"
   }
 }
