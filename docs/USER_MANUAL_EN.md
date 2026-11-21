@@ -1,8 +1,8 @@
-# HMR v2.0 User Manual (English)
+# HMR v2.1 User Manual (English)
 
 **Hestia Memory Runtime — Persistent Cognitive Runtime**
 
-Version: v2.0.0
+Version: v2.1.0
 
 ---
 
@@ -111,7 +111,7 @@ Priority: OpenAI > sentence-transformers > TF-IDF n-gram
 from hmr.core.hmr import HMR
 hmr = HMR()
 s = hmr.get_system_status()
-print(s["version"])             # 2.0.0
+print(s["version"])             # 2.1.0
 print(s["embedding_provider"]) # openai / sentence_transformers / tfidf
 ```
 
@@ -1036,7 +1036,7 @@ hmr_data/
 status = hmr.get_system_status()
 
 # Core
-print(status["version"])                     # "2.0.0"
+print(status["version"])                     # "2.1.0"
 print(status["memory_fs"]["total_memories"])
 print(status["vector_store"]["total_vectors"])
 print(status["synced"])                      # True = in sync

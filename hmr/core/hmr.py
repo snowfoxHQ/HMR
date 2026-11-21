@@ -1,5 +1,5 @@
 """
-HMR v2.0 - 核心运行时引擎
+HMR v2.1 - 核心运行时引擎
 
 v1.0  基础记忆存储
 v1.1  持久化修复（VectorStore / SM-2 / 文件锁）
@@ -8,6 +8,8 @@ v2.0  认知智能层：
         + ThoughtChain Engine  — 显式推理链 + 反思循环
         + Memory Policy Engine — 策略学习（存/取/忘）
         + Self-Evolution Engine — 模式识别 + 知识抽象 + 矛盾解决
+v2.1  编码 Agent 记忆治理（借鉴 MemoraX Code）：
+        + 记忆边界 / 结构化记忆卡 / 个人记忆层 / 本地 Trace
 """
 
 from typing import List, Dict, Any, Optional
@@ -55,15 +57,17 @@ def detect_lang(text: str) -> str:
 
 class HMR:
     """
-    Hestia Memory Runtime v2.0
+    Hestia Memory Runtime v2.1
 
     v2.0 新增：
         self.thought_chain  → 推理链引擎
         self.policy         → 策略学习引擎
         self.evolution      → 自我演化引擎
+    v2.1 新增：
+        记忆边界 / 结构化记忆卡 / 个人记忆层 / 本地 Trace
     """
 
-    VERSION = "2.0.0"
+    VERSION = "2.1.0"
 
     def __init__(
         self,

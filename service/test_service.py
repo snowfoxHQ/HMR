@@ -1,5 +1,5 @@
 """
-test_service.py — 测试 HMR v2.0 服务是否正常（不需要 OpenClaw）
+test_service.py — 测试 HMR v2.1 服务是否正常（不需要 OpenClaw）
 用法：先启动 server.py，再另开窗口运行 python test_service.py
 """
 import urllib.request
@@ -19,7 +19,7 @@ def call(path, method="GET", data=None, params=None):
         return json.loads(resp.read())
 
 print("=" * 55)
-print(" HMR v2.0 服务连接测试")
+print(" HMR v2.1 服务连接测试")
 print("=" * 55)
 
 print("\n[1] 健康检查...")
@@ -73,7 +73,7 @@ r = call("/evolve", "POST", params={"dry_run": "true"})
 print(f"    {r.get('summary', r.get('message', 'OK'))}")
 
 print("\n[9] 保存状态...")
-r = call("/save_state", "POST", {"goal": "测试v2.0对接", "plan": ["启动", "测试", "验证"]})
+r = call("/save_state", "POST", {"goal": "测试v2.1对接", "plan": ["启动", "测试", "验证"]})
 print(f"    已保存: {r['goal']}")
 
 print("\n[10] 重建向量索引...")
@@ -81,5 +81,5 @@ r = call("/reindex", "POST")
 print(f"    重建 {r['memory_count']} 条，provider={r['embedding_provider']}")
 
 print("\n" + "=" * 55)
-print(" ✅ HMR v2.0 服务工作正常，可接入 OpenClaw")
+print(" ✅ HMR v2.1 服务工作正常，可接入 OpenClaw")
 print("=" * 55)

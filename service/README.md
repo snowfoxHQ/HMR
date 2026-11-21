@@ -1,4 +1,4 @@
-# HMR Memory Service v2.0
+# HMR Memory Service v2.1
 
 把 HMR 包成本地 HTTP 服务，供 OpenClaw 等 agent 通过 hmr-memory skill 调用。
 

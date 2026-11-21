@@ -1,8 +1,8 @@
-# HMR v2.0 用户操作手册（中文）
+# HMR v2.1 用户操作手册（中文）
 
 **Hestia Memory Runtime — 持续认知运行时**
 
-版本：v2.0.0
+版本：v2.1.0
 
 ---
 
@@ -108,7 +108,7 @@ HMR 启动时自动检测并选择最佳 Embedding 方案：
 from hmr.core.hmr import HMR
 hmr = HMR()
 s = hmr.get_system_status()
-print(s["version"])            # 2.0.0
+print(s["version"])            # 2.1.0
 print(s["embedding_provider"]) # openai / sentence_transformers / tfidf
 ```
 
@@ -1042,7 +1042,7 @@ hmr_data/
 status = hmr.get_system_status()
 
 # 基础指标
-print(status["version"])            # "2.0.0"
+print(status["version"])            # "2.1.0"
 print(status["memory_fs"]["total_memories"])
 print(status["vector_store"]["total_vectors"])
 print(status["synced"])             # True = 向量与记忆数量同步

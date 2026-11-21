@@ -1,5 +1,5 @@
 """
-HMR HTTP Service v2.0 - wraps HMR as a local HTTP service for external agents (OpenClaw etc.)
+HMR HTTP Service v2.1 - wraps HMR as a local HTTP service for external agents (OpenClaw etc.)
 
 Prerequisites:
   1. HMR installed: run 'pip install -e .' in the HMR project dir (with pyproject.toml)

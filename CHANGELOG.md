@@ -1,11 +1,5 @@
 # Changelog
 
-## v2.2.0 — 2026-11-21
-写入可靠性补充批次（详见 `docs/MEMORAX_BORROW_PLAN.md`）：
-- 存储一致性：文件优先写入 + 向量失败回滚、孤儿向量防御、删除时文件/索引/向量三处同步、启动反向对账
-- 写入可信性：来源身份落盘、工作区作用域校验、写前脱敏（与 trace 共用规则）、单进程幂等去重
-- 写入恢复：Pending accepted/persisted/failed、可重试错误分类与退避、重启恢复、ThoughtChain 洞察补偿
-
 ## v2.1.0 — 2026-11-21
 借鉴 MemoraX Code 的记忆边界与写入治理，详见 `docs/MEMORAX_BORROW_PLAN.md`：
 - MemoryObject 新增 boundary/scope/status/source/evidence/metadata，旧数据免迁移
